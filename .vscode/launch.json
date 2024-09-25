@@ -1,0 +1,19 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Train_gpt",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/train_gpt_2.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "HF_HOME": "S://huggingface",
+                "HF_ASSETS_CACHE": "S://huggingface",
+                "TORCH_HOME": "S://torch",
+                "TRANSFORMERS_CACHE": "S://torch"
+            }
+        }
+    ]
+}
