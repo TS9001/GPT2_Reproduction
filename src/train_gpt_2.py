@@ -135,16 +135,16 @@ def train_model():
 
     optimizer = Optimizer(raw_model, lr=6e-4, betas=(0.9, 0.95), eps=1e-8, weight_decay=0.1)
     scheduler = CosineScheduler(max_lr=6e-4, warmup_steps=715, min_lr=6e-5, total_steps=19073)
-    grad_accumulation_steps = 16384 // (8 * 1024 * ddp_world_size)
+    grad_accumulation_steps = 524288 // (64 * 1024 * ddp_world_size)
 
     if master_process:
         print('Starting training')
-        print(f'Total batch size: {16384}')
+        print(f'Total batch size: {524288}')
         print(f'Micro batch size: {8}')
         print(f'Grad accumulation steps: {grad_accumulation_steps}')
 
     train_start = time.time()
-    tokens_per_batch = 8 * 1024 * grad_accumulation_steps
+    tokens_per_batch = 64 * 1024 * grad_accumulation_steps
     total_tokens = 0
 
     torch.set_float32_matmul_precision('high')
