@@ -23,7 +23,7 @@ os.makedirs(train_folder)
 os.makedirs(val_folder)
 
 
-def tokenize(self, doc):
+def tokenize(doc):
     tokens = tokenizer.encode_ordinary(doc["text"])
     tokens.append(eot_token)
     return np.array(tokens).astype(np.uint16)
