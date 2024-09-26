@@ -25,7 +25,7 @@ class FinewebEduDataset:
         self.current_position = self.batch_size * self.max_seq_len * self.process_rank
 
     def load_tokens(self, filename):
-        npt = np.load(f'{self.dataset_folder}\\{filename}').astype(np.int32)
+        npt = np.load(f'{self.dataset_folder}/{filename}').astype(np.int32)
         ptt = torch.tensor(npt, dtype=torch.long)
 
         return ptt
