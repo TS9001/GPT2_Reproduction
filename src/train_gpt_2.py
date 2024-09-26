@@ -56,10 +56,10 @@ def initialize_ddp():
 def load_data(tokenizer, ddp_rank, micro_batch_size, max_seq_len):
     """Load the training and validation datasets."""
     dataset_folder = os.path.join(os.path.dirname(__file__), '../resources/edu_fineweb')
-    train_data_loader = FinewebEduDataset(dataset_folder=dataset_folder, tokenizer=tokenizer, batch_size=micro_batch_size,
+    train_data_loader = FinewebEduDataset(dataset_folder=dataset_folder, batch_size=micro_batch_size,
                                           max_seq_len=max_seq_len, process_rank=ddp_rank, split='train')
 
-    valid_data_loader = FinewebEduDataset(dataset_folder=dataset_folder, tokenizer=tokenizer, batch_size=micro_batch_size,
+    valid_data_loader = FinewebEduDataset(dataset_folder=dataset_folder, batch_size=micro_batch_size,
                                           max_seq_len=max_seq_len, process_rank=ddp_rank, split='val')
     return train_data_loader, valid_data_loader
 

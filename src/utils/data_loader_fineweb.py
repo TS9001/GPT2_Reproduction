@@ -7,7 +7,7 @@ shard_size = int(1e8)
 
 class FinewebEduDataset:
 
-    def __init__(self, data, tokenizer, dataset_folder, batch_size=4, max_seq_len=32, split='train', process_rank=0, ):
+    def __init__(self, dataset_folder, batch_size=4, max_seq_len=32, split='train', process_rank=0, ):
 
         self.batch_size = batch_size
         self.max_seq_len = max_seq_len
