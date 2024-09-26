@@ -4,12 +4,23 @@ import numpy as np
 import multiprocessing as mp
 from tqdm import tqdm
 import tiktoken
+import shutil
 
 shard_size = int(1e8)
 tokenizer = tiktoken.get_encoding('gpt2')
 eot_token = tokenizer._special_tokens['<|endoftext|>']
 data = load_dataset('HuggingFaceFW/fineweb-edu', name='sample-10BT', split='train')
 dataset_folder = os.path.join(os.path.dirname(__file__), '../resources/edu_fineweb')
+# Create dataset folder and subfolders for train and val splits
+if os.path.exists(dataset_folder):
+    shutil.rmtree(dataset_folder)
+os.makedirs(dataset_folder)
+
+train_folder = os.path.join(dataset_folder, 'train')
+val_folder = os.path.join(dataset_folder, 'val')
+
+os.makedirs(train_folder)
+os.makedirs(val_folder)
 
 
 def tokenize(self, doc):
@@ -18,12 +29,11 @@ def tokenize(self, doc):
     return np.array(tokens).astype(np.uint16)
 
 
-def write_datafile(split, dataset_folder, data):
+def write_datafile(split, dataset_folder, data, skip_first):
     shard_index, token_count = 0, 0
-    skip_first = (split == 'train')
     current_shard = np.empty((shard_size,), dtype=np.uint16)
     progress_bar = None
-    nprocs = max(1, os.cpu_count()//2)
+    nprocs = max(1, os.cpu_count()-1)
     with mp.Pool(nprocs) as pool:
         for tokens in pool.imap(tokenize, data, chunksize=16):
             current_tokens_len = len(tokens)
@@ -58,5 +68,5 @@ def write_datafile(split, dataset_folder, data):
                     np.save(filename, tokens[:token_count])
 
 
-write_datafile('train', dataset_folder, data)
-write_datafile('val', dataset_folder, data)
+write_datafile('train', dataset_folder, data, True)
+write_datafile('val', dataset_folder, data, False)
