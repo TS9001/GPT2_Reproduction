@@ -14,18 +14,19 @@ import torch.distributed as dist
 
 # Constants
 DATASET_TARGET_DIR = os.path.join(os.path.dirname(__file__), '../resources/hellswag')
-VALIDATION_PER_STEPS = 500
-HELLSWAG_STEPS = 500
+VALIDATION_PER_STEPS = os.environ.get('VALIDATION_PER_STEPS', 500)
+HELLSWAG_STEPS = os.environ.get('HELLSWAG_STEPS', 500)
+SAVE_STEPS = os.environ.get('SAVE_STEPS', 500)
 SOURCE = "https://raw.githubusercontent.com/rowanz/hellaswag/master/data/hellaswag_val.jsonl"
 GPT2_SMALL = "gpt2"
 CONFIGURATION = GPT2Configuration(num_layers=12, num_heads=12, d_model=768)
 RESULT_DIR = "result"
 LOG_FILE = os.path.join(RESULT_DIR, "log.txt")
-MICRO_BATCH_SIZE = int(os.environ.get('MICRO_BATCH_SIZE', 64))
+MICRO_BATCH_SIZE = int(os.environ.get('MICRO_BATCH_SIZE', 24))
 SEQUENCE_LENGTH = int(os.environ.get('SEQUENCE_LENGTH', 1024))
 TOTAL_BATCH_SIZE = int(os.environ.get('TOTAL_BATCH_SIZE', 524288))
 LEARNING_RATE = float(os.environ.get('LEARNING_RATE', 6e-4))
-WARMUP_STEPS = float(os.environ.get('WARMUP_STEPS', 715))
+WARMUP_STEPS = int(os.environ.get('WARMUP_STEPS', 715))
 WEIGHT_DECAY = float(os.environ.get('WEIGHT_DECAY', 0.1))
 EPSILON = float(os.environ.get('EPSILON', 1e-8))
 BETAS1 = float(os.environ.get('BETAS1', 0.9))
@@ -202,7 +203,7 @@ def train_model():
         if (step > 0 and step % HELLSWAG_STEPS == 0) or last_step:
             process_hellswag(model, LOG_FILE, step, device, ddp, ddp_world_size, ddp_rank, master_process)
 
-        if master_process and (step > 0 and (step % VALIDATION_PER_STEPS == 0 or last_step)):
+        if master_process and (step > 0 and (step % SAVE_STEPS == 0 or last_step)):
             checkpoint = {
                 'model': raw_model.state_dict(),
                 'config': raw_model.config,

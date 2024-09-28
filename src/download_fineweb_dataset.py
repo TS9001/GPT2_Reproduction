@@ -64,7 +64,7 @@ def write_datafile(split, dataset_folder, data, skip_first):
                     break
 
                 if token_count != 0:
-                    filename = os.path.join(dataset_folder, split, f'edu_fw_{split}_{shard_index:06d}')
+                    filename = os.path.join('{dataset_folder}/{split}', split, f'edu_fw_{split}_{shard_index:06d}')
                     np.save(filename, tokens[:token_count])
 
 
