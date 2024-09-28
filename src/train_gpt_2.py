@@ -7,7 +7,6 @@ from utils.optimizer import Optimizer
 from utils.data_loader_fineweb import FinewebEduDataset
 from utils.hellswag import evaluate_hellswag, download_hellswag_dataset
 import tiktoken
-from datasets import load_dataset
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
 import torch.distributed as dist
@@ -22,6 +21,17 @@ GPT2_SMALL = "gpt2"
 CONFIGURATION = GPT2Configuration(num_layers=12, num_heads=12, d_model=768)
 RESULT_DIR = "result"
 LOG_FILE = os.path.join(RESULT_DIR, "log.txt")
+MICRO_BATCH_SIZE = int(os.environ.get('MICRO_BATCH_SIZE', 64))
+SEQUENCE_LENGTH = int(os.environ.get('SEQUENCE_LENGTH', 1024))
+TOTAL_BATCH_SIZE = int(os.environ.get('TOTAL_BATCH_SIZE', 524288))
+LEARNING_RATE = float(os.environ.get('LEARNING_RATE', 6e-4))
+WARMUP_STEPS = float(os.environ.get('WARMUP_STEPS', 715))
+WEIGHT_DECAY = float(os.environ.get('WEIGHT_DECAY', 0.1))
+EPSILON = float(os.environ.get('EPSILON', 1e-8))
+BETAS1 = float(os.environ.get('BETAS1', 0.9))
+BETA2 = float(os.environ.get('BETA2', 0.95))
+TOTAL_STEPS = int(os.environ.get('TOTAL_STEPS', 19073))
+BETAS = (BETAS1, BETA2)
 
 
 def setup_environment():
@@ -53,14 +63,27 @@ def initialize_ddp():
     return ddp, ddp_rank, ddp_local_rank, ddp_world_size, master_process, device
 
 
-def load_data(tokenizer, ddp_rank, micro_batch_size, max_seq_len):
+def load_data(tokenizer, ddp_rank, micro_batch_size, max_seq_len, ddp_world_size):
     """Load the training and validation datasets."""
     dataset_folder = os.path.join(os.path.dirname(__file__), '../resources/edu_fineweb')
-    train_data_loader = FinewebEduDataset(dataset_folder=dataset_folder, batch_size=micro_batch_size,
-                                          max_seq_len=max_seq_len, process_rank=ddp_rank, split='train')
 
-    valid_data_loader = FinewebEduDataset(dataset_folder=dataset_folder, batch_size=micro_batch_size,
-                                          max_seq_len=max_seq_len, process_rank=ddp_rank, split='val')
+    train_data_loader = FinewebEduDataset(
+        dataset_folder=dataset_folder,
+        batch_size=micro_batch_size,
+        max_seq_len=max_seq_len,
+        num_processes=ddp_world_size,
+        process_rank=ddp_rank,
+        split='train'
+    )
+    valid_data_loader = FinewebEduDataset(
+        dataset_folder=dataset_folder,
+        batch_size=micro_batch_size,
+        max_seq_len=max_seq_len,
+        num_processes=ddp_world_size,
+        process_rank=ddp_rank,
+        split='val'
+    )
+
     return train_data_loader, valid_data_loader
 
 
@@ -126,23 +149,41 @@ def train_model():
     download_hellswag_dataset(SOURCE, dirname=DATASET_TARGET_DIR)
     model, raw_model = setup_model(device, ddp, ddp_local_rank)
     tokenizer = tiktoken.get_encoding('gpt2')
-    train_data_loader, valid_data_loader = load_data(tokenizer, ddp_rank, micro_batch_size=8, max_seq_len=1024)
+    train_data_loader, valid_data_loader = load_data(
+        tokenizer=tokenizer,
+        ddp_rank=ddp_rank,
+        micro_batch_size=MICRO_BATCH_SIZE,
+        max_seq_len=SEQUENCE_LENGTH,
+        ddp_world_size=ddp_world_size
+    )
 
     if master_process:
         print("Loaded dataset!")
 
-    optimizer = Optimizer(raw_model, lr=6e-4, betas=(0.9, 0.95), eps=1e-8, weight_decay=0.1)
-    scheduler = CosineScheduler(max_lr=6e-4, warmup_steps=715, min_lr=6e-5, total_steps=19073)
-    grad_accumulation_steps = 524288 // (64 * 1024 * ddp_world_size)
+    optimizer = Optimizer(raw_model, lr=LEARNING_RATE, betas=BETAS, eps=EPSILON, weight_decay=WEIGHT_DECAY)
+    scheduler = CosineScheduler(max_lr=LEARNING_RATE, warmup_steps=WARMUP_STEPS, min_lr=LEARNING_RATE * 0.1, total_steps=TOTAL_STEPS)
+    grad_accumulation_steps = TOTAL_BATCH_SIZE // (MICRO_BATCH_SIZE * SEQUENCE_LENGTH * ddp_world_size)
 
     if master_process:
         print('Starting training')
-        print(f'Total batch size: {524288}')
-        print(f'Micro batch size: {8}')
+        print(f'Total batch size: {TOTAL_BATCH_SIZE}')
+        print(f'Micro batch size: {MICRO_BATCH_SIZE}')
         print(f'Grad accumulation steps: {grad_accumulation_steps}')
+        print(f'Sequence length: {SEQUENCE_LENGTH}')
+        print(f'Total steps: {TOTAL_STEPS}')
+        print(f'Warmup steps: {WARMUP_STEPS}')
+        print(f'Learning rate: {LEARNING_RATE}')
+        print(f'Weight decay: {WEIGHT_DECAY}')
+        print(f'Epsilon: {EPSILON}')
+        print(f'Betas: {BETAS}')
+        print(f'DDP: {ddp}')
+        print(f'DDP rank: {ddp_rank}')
+        print(f'DDP local rank: {ddp_local_rank}')
+        print(f'DDP world size: {ddp_world_size}')
+        print(f'Device: {device}')
 
     train_start = time.time()
-    tokens_per_batch = 64 * 1024 * grad_accumulation_steps
+    tokens_per_batch = MICRO_BATCH_SIZE * SEQUENCE_LENGTH * grad_accumulation_steps * ddp_world_size
     total_tokens = 0
 
     torch.set_float32_matmul_precision('high')
@@ -153,6 +194,23 @@ def train_model():
     for step in range(scheduler.total_steps):
         last_step = (step == scheduler.total_steps - 1)
         start = time.time()
+
+        if (step > 0 and step % VALIDATION_PER_STEPS == 0) or last_step:
+            total_valid_loss = process_validation(model, valid_data_loader, LOG_FILE, step, device, ddp, master_process)
+            process_hellswag(model, LOG_FILE, step, device, ddp, ddp_world_size, ddp_rank, master_process)
+
+        if (step > 0 and step % HELLSWAG_STEPS == 0) or last_step:
+            process_hellswag(model, LOG_FILE, step, device, ddp, ddp_world_size, ddp_rank, master_process)
+
+        if master_process and (step > 0 and (step % VALIDATION_PER_STEPS == 0 or last_step)):
+            checkpoint = {
+                'model': raw_model.state_dict(),
+                'config': raw_model.config,
+                'step': step,
+                'val_loss': total_valid_loss.item()
+            }
+            torch.save(checkpoint, os.path.join(RESULT_DIR, f"gpt_2_model_{step:05d}.pt"))
+
         model.train()
         optimizer.zero_grad()
         loss_accumulated = 0.0
@@ -180,25 +238,9 @@ def train_model():
         total_tokens += tokens_per_batch
 
         if master_process:
-            print(f'<Step {step}> loss:{loss_accumulated}, norm:{norm} tok/sec:{tokens_per_sec:.2f}, time:{(end - start)*1000:.2f} ms')
+            print(f'<Step {step}> loss:{loss_accumulated}, lr: {optimizer.lr}, norm:{norm}, tok/sec:{tokens_per_sec:.2f}, time:{(end - start)*1000:.2f} ms')
             with open(LOG_FILE, "a") as f:
                 f.write(f"{step} train {loss_accumulated:.6f}\n")
-
-        if (step > 0 and step % VALIDATION_PER_STEPS == 0) or last_step:
-            total_valid_loss = process_validation(model, valid_data_loader, LOG_FILE, step, device, ddp, master_process)
-            process_hellswag(model, LOG_FILE, step, device, ddp, ddp_world_size, ddp_rank, master_process)
-
-        if (step > 0 and step % HELLSWAG_STEPS == 0) or last_step:
-            process_hellswag(model, LOG_FILE, step, device, ddp, ddp_world_size, ddp_rank, master_process)
-
-        if master_process and (step > 0 and (step % VALIDATION_PER_STEPS == 0 or last_step)):
-            checkpoint = {
-                'model': raw_model.state_dict(),
-                'config': raw_model.config,
-                'step': step,
-                'val_loss': total_valid_loss.item()
-            }
-            torch.save(checkpoint, os.path.join(RESULT_DIR, f"gpt_2_model_{step:05d}.pt"))
 
     train_end = time.time()
     print(f'Training took: {(train_end - train_start):.2f} sec, avg tok/sec: {total_tokens / (train_end - train_start):.2f}')

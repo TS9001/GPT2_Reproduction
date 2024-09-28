@@ -3,7 +3,7 @@ import torch
 
 class Optimizer:
     def __init__(self, model, lr, betas, eps, weight_decay):
-
+        self.lr = lr
         param_groups = model.parameters()
         if weight_decay > 0:
             params = {
@@ -25,8 +25,7 @@ class Optimizer:
                 {'params': no_decay_params, 'weight_decay': 0}
             ]
         # Defaultly using AdamW
-        self.optimizer = torch.optim.AdamW(
-            param_groups, lr=lr, betas=betas, eps=eps, weight_decay=weight_decay, fused=True)
+        self.optimizer = torch.optim.AdamW(param_groups, lr=lr, betas=betas, eps=eps, fused=True)
 
     def zero_grad(self):
         self.optimizer.zero_grad()

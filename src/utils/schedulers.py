@@ -12,8 +12,7 @@ class CosineScheduler():
 
         if steps < self.warmup_steps:
             return self.max_lr * (steps+1) / self.warmup_steps
-        if steps >= self.total_steps:
+        if steps > self.total_steps:
             return self.min_lr
-        decay_ratio = (steps - self.warmup_steps) / \
-            (self.total_steps - self.warmup_steps)
+        decay_ratio = (steps - self.warmup_steps) / (self.total_steps - self.warmup_steps)
         return (0.5 * (1.0 + math.cos(math.pi*decay_ratio))) * (self.max_lr - self.min_lr) + self.min_lr

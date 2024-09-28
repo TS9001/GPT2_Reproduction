@@ -7,10 +7,11 @@ shard_size = int(1e8)
 
 class FinewebEduDataset:
 
-    def __init__(self, dataset_folder, batch_size=4, max_seq_len=32, split='train', process_rank=0, ):
+    def __init__(self, dataset_folder, batch_size=4, max_seq_len=32, split='train', num_processes=1, process_rank=0):
 
         self.batch_size = batch_size
         self.max_seq_len = max_seq_len
+        self.num_processes = num_processes
         self.process_rank = process_rank
         self.split = split
         self.dataset_folder = f'{dataset_folder}/{split}'
@@ -31,14 +32,14 @@ class FinewebEduDataset:
         return ptt
 
     def next_batch(self):
-        batch_size, max_seq_len, process_rank = self.batch_size, self.max_seq_len, self.process_rank
+        batch_size, max_seq_len = self.batch_size, self.max_seq_len
         data = self.tokens[self.current_position:self.current_position + (max_seq_len*batch_size+1)]
         x, y = (data[:-1]).view(batch_size, max_seq_len), (data[1:]).view(batch_size, max_seq_len)
-        self.current_position += batch_size * max_seq_len * process_rank
-        if self.current_position + (batch_size * max_seq_len) > len(self.tokens):
+        self.current_position += batch_size * max_seq_len * self.num_processes
+        if self.current_position + (batch_size * max_seq_len * self.num_processes + 1) > len(self.tokens):
             self.current_shard = (self.current_shard + 1) % len(self.shards)
             self.tokens = self.load_tokens(self.shards[self.current_shard])
-            self.current_position = batch_size * max_seq_len * process_rank
+            self.current_position = batch_size * max_seq_len * self.process_rank
 
         x = x.pin_memory()
         y = y.pin_memory()
