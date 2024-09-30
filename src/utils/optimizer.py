@@ -34,5 +34,6 @@ class Optimizer:
         self.optimizer.step()
 
     def set_learning_rate(self, lr):
+        self.lr = lr
         for param_group in self.optimizer.param_groups:
             param_group['lr'] = lr
