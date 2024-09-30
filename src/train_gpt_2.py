@@ -11,6 +11,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
 import torch.distributed as dist
 
+run_hellswag = False
 
 # Constants
 DATASET_TARGET_DIR = os.path.join(os.path.dirname(__file__), '../resources/hellswag')
@@ -200,7 +201,7 @@ def train_model():
             total_valid_loss = process_validation(model, valid_data_loader, LOG_FILE, step, device, ddp, master_process)
             process_hellswag(model, LOG_FILE, step, device, ddp, ddp_world_size, ddp_rank, master_process)
 
-        if (step > 0 and step % HELLSWAG_STEPS == 0) or last_step:
+        if run_hellswag and (step > 0 and step % HELLSWAG_STEPS == 0) or last_step:
             process_hellswag(model, LOG_FILE, step, device, ddp, ddp_world_size, ddp_rank, master_process)
 
         if master_process and (step > 0 and (step % SAVE_STEPS == 0 or last_step)):

@@ -87,7 +87,7 @@ class GPT2Basic(nn.Module):
         self.transformer = nn.ModuleDict(dict(
             wte=nn.Embedding(config.vocab_size, config.d_model),
             wpe=nn.Embedding(config.block_size, config.d_model),
-            h=nn.ModuleList([Block(config) for _ in range(config.num_heads)]),
+            h=nn.ModuleList([Block(config) for _ in range(config.num_layers)]),
             ln_f=nn.LayerNorm(config.d_model)
         ))
         self.lm_head = torch.nn.Linear(

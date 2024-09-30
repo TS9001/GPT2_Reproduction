@@ -53,8 +53,8 @@ def load_example(example, enc, device):
     mask = torch.zeros((4, max_tokens), dtype=torch.long, device=device)
 
     for i, (tokens_r, mask_r) in enumerate(zip(tokens_rows, mask_rows)):
-        tokens[i, :len(tokens_r)] = torch.tensor(tokens_r)
-        mask[i, :len(mask_r)] = torch.tensor(mask_r)
+        tokens[i, :len(tokens_r)] = torch.tensor(tokens_r, dtype=torch.long, device=device)
+        mask[i, :len(mask_r)] = torch.tensor(mask_r, dtype=torch.long, device=device)
 
     return tokens, mask, label
 
@@ -70,41 +70,44 @@ def evaluate_hellswag(model, device, dataset_target_dir, ddp_world_size, ddp_ran
     total = 0
     correct = 0
     correct_normalized = 0
+    try:
+        for i, example in enumerate(examples):
+            if i % ddp_world_size != ddp_rank:
+                continue
+            tokens, mask, labels = load_example(example, enc, device)
 
-    for i, example in enumerate(examples):
-        if i % ddp_world_size != ddp_rank:
-            continue
-        tokens, mask, labels = load_example(example, enc, device)
+            tokens = tokens.to(device)
+            mask = mask.to(device)
+            with torch.no_grad():
+                model.eval()
+                with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                    logits, _ = model(tokens)  # Pass both tokens and labels
+            epsilon = 1e-8
+            shift_logits = (logits[:, :-1, :]).contiguous()  # B T V
+            shift_tokens = (tokens[:, 1:]).contiguous()  # B T
 
-        tokens = tokens.to(device)
-        mask = mask.to(device)
-        with torch.no_grad():
-            model.eval()
-            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-                logits, _ = model(tokens)  # Pass both tokens and labels
+            flat_logits = shift_logits.view(-1, shift_logits.size(-1))
+            flat_tokens = shift_tokens.view(-1)
 
-        shift_logits = (logits[:, :-1, :]).contiguous()  # B T V
-        shift_tokens = (tokens[:, 1:]).contiguous()  # B T
+            loss = F.cross_entropy(flat_logits, flat_tokens, reduction='none')
+            loss = loss.view(tokens.size(0), -1)
 
-        flat_logits = shift_logits.view(-1, shift_logits.size(-1))
-        flat_tokens = shift_tokens.view(-1)
+            shift_mask = (mask[..., 1:]).contiguous()
+            masked_shift_losses = loss * shift_mask
+            sum_loss = masked_shift_losses.sum(dim=1)
+            avg_loss = sum_loss / (shift_mask.sum(dim=1) + epsilon)
 
-        loss = F.cross_entropy(flat_logits, flat_tokens, reduction='none')
-        loss = loss.view(tokens.size(0), -1)
+            predictions = sum_loss.argmin().item()
+            predictions_normalized = avg_loss.argmin().item()
 
-        shift_mask = (mask[..., 1:]).contiguous()
-        masked_shift_losses = loss * shift_mask
-        sum_loss = masked_shift_losses.sum(dim=1)
-        avg_loss = sum_loss / shift_mask.sum(dim=1)
+            total += 1
+            correct += int(predictions == labels)
+            correct_normalized += int(predictions_normalized == labels)
 
-        predictions = sum_loss.argmin().item()
-        predictions_normalized = avg_loss.argmin().item()
-
-        total += 1
-        correct += int(predictions == labels)
-        correct_normalized += int(predictions_normalized == labels)
-
-    return total, correct, correct_normalized
+        return total, correct, correct_normalized
+    except Exception as e:
+        logging.error(f"Error in evaluation: {e}", exc_info=True)
+        raise e
 
 
 if __name__ == "__main__":
