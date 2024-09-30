@@ -11,19 +11,18 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
 import torch.distributed as dist
 
-run_hellswag = False
 
 # Constants
 DATASET_TARGET_DIR = os.path.join(os.path.dirname(__file__), '../resources/hellswag')
-VALIDATION_PER_STEPS = os.environ.get('VALIDATION_PER_STEPS', 500)
-HELLSWAG_STEPS = os.environ.get('HELLSWAG_STEPS', 500)
-SAVE_STEPS = os.environ.get('SAVE_STEPS', 500)
+VALIDATION_PER_STEPS = int(os.environ.get('VALIDATION_PER_STEPS', 500))
+HELLSWAG_STEPS = int(os.environ.get('HELLSWAG_STEPS', 500))
+SAVE_STEPS = int(os.environ.get('SAVE_STEPS', 500))
 SOURCE = "https://raw.githubusercontent.com/rowanz/hellaswag/master/data/hellaswag_val.jsonl"
 GPT2_SMALL = "gpt2"
 CONFIGURATION = GPT2Configuration(num_layers=12, num_heads=12, d_model=768)
 RESULT_DIR = "result"
 LOG_FILE = os.path.join(RESULT_DIR, "log.txt")
-MICRO_BATCH_SIZE = int(os.environ.get('MICRO_BATCH_SIZE', 24))
+MICRO_BATCH_SIZE = int(os.environ.get('MICRO_BATCH_SIZE', 18))
 SEQUENCE_LENGTH = int(os.environ.get('SEQUENCE_LENGTH', 1024))
 TOTAL_BATCH_SIZE = int(os.environ.get('TOTAL_BATCH_SIZE', 524288))
 LEARNING_RATE = float(os.environ.get('LEARNING_RATE', 18e-4))
@@ -168,6 +167,9 @@ def train_model():
 
     if master_process:
         print('Starting training')
+        print(f'Validation per steps: {VALIDATION_PER_STEPS}')
+        print(f'Hellswag steps: {HELLSWAG_STEPS}')
+        print(f'Save steps: {SAVE_STEPS}')
         print(f'Total batch size: {TOTAL_BATCH_SIZE}')
         print(f'Micro batch size: {MICRO_BATCH_SIZE}')
         print(f'Grad accumulation steps: {grad_accumulation_steps}')
@@ -201,7 +203,7 @@ def train_model():
             total_valid_loss = process_validation(model, valid_data_loader, LOG_FILE, step, device, ddp, master_process)
             process_hellswag(model, LOG_FILE, step, device, ddp, ddp_world_size, ddp_rank, master_process)
 
-        if run_hellswag and (step > 0 and step % HELLSWAG_STEPS == 0) or last_step:
+        if (step > 0 and step % HELLSWAG_STEPS == 0) or last_step:
             process_hellswag(model, LOG_FILE, step, device, ddp, ddp_world_size, ddp_rank, master_process)
 
         if master_process and (step > 0 and (step % SAVE_STEPS == 0 or last_step)):
