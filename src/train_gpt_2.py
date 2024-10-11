@@ -16,6 +16,7 @@ import torch.distributed as dist
 DATASET_TARGET_DIR = os.path.join(os.path.dirname(__file__), '../resources/hellswag')
 VALIDATION_PER_STEPS = int(os.environ.get('VALIDATION_PER_STEPS', 500))
 HELLSWAG_STEPS = int(os.environ.get('HELLSWAG_STEPS', 500))
+SKIP_HELLSWAG = bool(os.environ.get('SKIP_HELLSWAG', True))
 SAVE_STEPS = int(os.environ.get('SAVE_STEPS', 500))
 SOURCE = "https://raw.githubusercontent.com/rowanz/hellaswag/master/data/hellaswag_val.jsonl"
 GPT2_SMALL = "gpt2"
@@ -25,13 +26,13 @@ LOG_FILE = os.path.join(RESULT_DIR, "log.txt")
 MICRO_BATCH_SIZE = int(os.environ.get('MICRO_BATCH_SIZE', 18))
 SEQUENCE_LENGTH = int(os.environ.get('SEQUENCE_LENGTH', 1024))
 TOTAL_BATCH_SIZE = int(os.environ.get('TOTAL_BATCH_SIZE', 524288))
-LEARNING_RATE = float(os.environ.get('LEARNING_RATE', 18e-4))
+LEARNING_RATE = float(os.environ.get('LEARNING_RATE', 6e-4))
 WARMUP_STEPS = int(os.environ.get('WARMUP_STEPS', 715))
 WEIGHT_DECAY = float(os.environ.get('WEIGHT_DECAY', 0.1))
 EPSILON = float(os.environ.get('EPSILON', 1e-8))
 BETAS1 = float(os.environ.get('BETAS1', 0.9))
 BETA2 = float(os.environ.get('BETA2', 0.95))
-TOTAL_STEPS = int(os.environ.get('TOTAL_STEPS', 282975))
+TOTAL_STEPS = int(os.environ.get('TOTAL_STEPS', 19073))
 BETAS = (BETAS1, BETA2)
 
 
@@ -201,10 +202,9 @@ def train_model():
 
         if (step > 0 and step % VALIDATION_PER_STEPS == 0) or last_step:
             total_valid_loss = process_validation(model, valid_data_loader, LOG_FILE, step, device, ddp, master_process)
-            process_hellswag(model, LOG_FILE, step, device, ddp, ddp_world_size, ddp_rank, master_process)
 
-        if (step > 0 and step % HELLSWAG_STEPS == 0) or last_step:
-            process_hellswag(model, LOG_FILE, step, device, ddp, ddp_world_size, ddp_rank, master_process)
+        # if (not SKIP_HELLSWAG and (step > 0 and step % HELLSWAG_STEPS == 0) or last_step):
+        #        process_hellswag(model, LOG_FILE, step, device, ddp, ddp_world_size, ddp_rank, master_process)
 
         if master_process and (step > 0 and (step % SAVE_STEPS == 0 or last_step)):
             checkpoint = {
@@ -242,9 +242,10 @@ def train_model():
         total_tokens += tokens_per_batch
 
         if master_process:
-            print(f'<Step {step}> loss:{loss_accumulated}, lr: {optimizer.lr}, norm:{norm}, tok/sec:{tokens_per_sec:.2f}, time:{(end - start)*1000:.2f} ms')
-            with open(LOG_FILE, "a") as f:
-                f.write(f"{step} train {loss_accumulated:.6f}\n")
+            if step % 50 == 0:
+                print(f'<Step {step}> loss:{loss_accumulated}, lr: {optimizer.lr}, norm:{norm}, tok/sec:{tokens_per_sec:.2f}, time:{(end - start)*1000:.2f} ms')
+                with open(LOG_FILE, "a") as f:
+                    f.write(f"{step} train {loss_accumulated:.6f}\n")
 
     train_end = time.time()
     print(f'Training took: {(train_end - train_start):.2f} sec, avg tok/sec: {total_tokens / (train_end - train_start):.2f}')

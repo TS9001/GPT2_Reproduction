@@ -34,6 +34,14 @@ class FinewebEduDataset:
     def next_batch(self):
         batch_size, max_seq_len = self.batch_size, self.max_seq_len
         data = self.tokens[self.current_position:self.current_position + (max_seq_len*batch_size+1)]
+        required_tokens = max_seq_len * batch_size + 1
+
+        if len(data) < required_tokens:
+            self.current_shard = (self.current_shard + 1) % len(self.shards)
+            self.tokens = self.load_tokens(self.shards[self.current_shard])
+            self.current_position = 0
+            data = self.tokens[:required_tokens]
+
         x, y = (data[:-1]).view(batch_size, max_seq_len), (data[1:]).view(batch_size, max_seq_len)
         self.current_position += batch_size * max_seq_len * self.num_processes
         if self.current_position + (batch_size * max_seq_len * self.num_processes + 1) > len(self.tokens):

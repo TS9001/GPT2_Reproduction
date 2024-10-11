@@ -24,8 +24,8 @@ os.makedirs(val_folder)
 
 
 def tokenize(doc):
-    tokens = tokenizer.encode_ordinary(doc["text"])
-    tokens.append(eot_token)
+    tokens = [eot_token]
+    tokens.extend(tokenizer.encode_ordinary(doc["text"]))
     return np.array(tokens).astype(np.uint16)
 
 
