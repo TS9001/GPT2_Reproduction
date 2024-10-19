@@ -16,7 +16,6 @@ import torch.distributed as dist
 DATASET_TARGET_DIR = os.path.join(os.path.dirname(__file__), '../resources/hellswag')
 VALIDATION_PER_STEPS = int(os.environ.get('VALIDATION_PER_STEPS', 500))
 HELLSWAG_STEPS = int(os.environ.get('HELLSWAG_STEPS', 500))
-SKIP_HELLSWAG = bool(os.environ.get('SKIP_HELLSWAG', True))
 SAVE_STEPS = int(os.environ.get('SAVE_STEPS', 500))
 SOURCE = "https://raw.githubusercontent.com/rowanz/hellaswag/master/data/hellaswag_val.jsonl"
 GPT2_SMALL = "gpt2"
@@ -203,8 +202,8 @@ def train_model():
         if (step > 0 and step % VALIDATION_PER_STEPS == 0) or last_step:
             total_valid_loss = process_validation(model, valid_data_loader, LOG_FILE, step, device, ddp, master_process)
 
-        # if (not SKIP_HELLSWAG and (step > 0 and step % HELLSWAG_STEPS == 0) or last_step):
-        #        process_hellswag(model, LOG_FILE, step, device, ddp, ddp_world_size, ddp_rank, master_process)
+        if (step > 0 and step % HELLSWAG_STEPS == 0 or last_step):
+            process_hellswag(model, LOG_FILE, step, device, ddp, ddp_world_size, ddp_rank, master_process)
 
         if master_process and (step > 0 and (step % SAVE_STEPS == 0 or last_step)):
             checkpoint = {
