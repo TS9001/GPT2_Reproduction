@@ -38,6 +38,8 @@ TOTAL_STEPS = int(os.environ.get('TOTAL_STEPS', 19073))
 PRINT_STEPS = int(os.environ.get('PRINT_STEPS', 50))
 BETAS = (BETAS1, BETA2)
 EPOCHS = int(os.environ.get('EPOCHS', 1))
+SAVE_ON_LAST = os.environ.get('SAVE_ON_LAST', 'True') == 'True'
+MIN_LR = float(os.environ.get('MIN_LR', LEARNING_RATE * 0.1))
 
 
 def setup_environment():
@@ -167,7 +169,7 @@ def train_model():
         print("Loaded dataset!")
 
     optimizer = Optimizer(raw_model, lr=LEARNING_RATE, betas=BETAS, eps=EPSILON, weight_decay=WEIGHT_DECAY)
-    scheduler = CosineScheduler(max_lr=LEARNING_RATE, warmup_steps=WARMUP_STEPS, min_lr=LEARNING_RATE * 0.1, total_steps=TOTAL_STEPS)
+    scheduler = CosineScheduler(max_lr=LEARNING_RATE, warmup_steps=WARMUP_STEPS, min_lr=MIN_LR, total_steps=TOTAL_STEPS)
     grad_accumulation_steps = TOTAL_BATCH_SIZE // (MICRO_BATCH_SIZE * SEQUENCE_LENGTH * ddp_world_size)
 
     if master_process:
@@ -191,6 +193,7 @@ def train_model():
         print(f'DDP local rank: {ddp_local_rank}')
         print(f'DDP world size: {ddp_world_size}')
         print(f'Device: {device}')
+        print(f'Save on last: {SAVE_ON_LAST}')
 
     train_start = time.time()
     tokens_per_batch = MICRO_BATCH_SIZE * SEQUENCE_LENGTH * grad_accumulation_steps * ddp_world_size
@@ -200,18 +203,20 @@ def train_model():
     os.makedirs(RESULT_DIR, exist_ok=True)
     with open(LOG_FILE, "w") as f:
         pass
-    for epoch in range(EPOCHS):
+    for epoch in range(EPOCHS):  # TODO only for testing and overfitting
+        if master_process:
+            print(f"Epoch {epoch}")
         for step in range(scheduler.total_steps):
             last_step = (step == scheduler.total_steps - 1)
             start = time.time()
 
-            if (step > 0 and step % VALIDATION_PER_STEPS == 0) or last_step:
+            if (step > 0 and step % VALIDATION_PER_STEPS == 0) or (last_step and SAVE_ON_LAST):
                 total_valid_loss = process_validation(model, valid_data_loader, LOG_FILE, step, device, ddp, master_process)
 
-            if (step > 0 and step % HELLSWAG_STEPS == 0 or last_step):
+            if (step > 0 and step % HELLSWAG_STEPS == 0 or (last_step and SAVE_ON_LAST)):
                 process_hellswag(model, LOG_FILE, step, device, ddp, ddp_world_size, ddp_rank, master_process)
 
-            if master_process and (step > 0 and (step % SAVE_STEPS == 0 or last_step)):
+            if master_process and ((step > 0 and step % SAVE_STEPS == 0) or (last_step and SAVE_ON_LAST)):
                 checkpoint = {
                     'model': raw_model.state_dict(),
                     'config': raw_model.config,
@@ -252,10 +257,18 @@ def train_model():
                     with open(LOG_FILE, "a") as f:
                         f.write(f"{step} train {loss_accumulated:.6f}\n")
 
-        train_end = time.time()
-        print(f'Training took: {(train_end - train_start):.2f} sec, avg tok/sec: {total_tokens / (train_end - train_start):.2f}')
-    train_data_loader.reset()
-    valid_data_loader.reset()
+        epoch_end = time.time()
+        if master_process:
+            if step % PRINT_STEPS == 0:
+                print(f'<Epoch {epoch}> loss:{loss_accumulated} tok/sec:{tokens_per_sec:.2f}, time:{(epoch_end - start)*1000:.2f} ms')
+                with open(LOG_FILE, "a") as f:
+                    f.write(f"{step} epoch {loss_accumulated:.6f}\n")
+        train_data_loader.reset()
+        valid_data_loader.reset()
+
+    train_end = time.time()
+    print(f'Training took: {(train_end - train_start):.2f} sec, avg tok/sec: {total_tokens / (train_end - train_start):.2f}')
+
     if ddp:
         destroy_process_group()
 

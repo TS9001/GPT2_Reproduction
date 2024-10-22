@@ -34,6 +34,8 @@ def write_datafile(split, dataset_folder, data, skip_first):
     current_shard = np.empty((shard_size,), dtype=np.uint16)
     progress_bar = None
     nprocs = max(1, os.cpu_count()-1)
+    split_folder = os.path.join(dataset_folder, split)
+
     with mp.Pool(nprocs) as pool:
         for tokens in pool.imap(tokenize, data, chunksize=16):
             current_tokens_len = len(tokens)
@@ -45,7 +47,7 @@ def write_datafile(split, dataset_folder, data, skip_first):
                     progress_bar = tqdm(total=shard_size, unit="tokens", desc=f"Shard {shard_index}")
                 progress_bar.update(current_tokens_len)
             else:
-                filename = os.path.join(dataset_folder, f'edu_fw_{split}_{shard_index:06d}')
+                filename = os.path.join(split_folder, f'edu_fw_{split}_{shard_index:06d}')
                 remaining = shard_size - token_count
                 current_shard[token_count:] = tokens[:remaining]
                 np.save(filename, current_shard)
@@ -64,7 +66,7 @@ def write_datafile(split, dataset_folder, data, skip_first):
                     break
 
                 if token_count != 0:
-                    filename = os.path.join(f'{dataset_folder}/{split}', f'edu_fw_{split}_{shard_index:06d}')
+                    filename = os.path.join(split_folder, f'edu_fw_{split}_{shard_index:06d}')
                     np.save(filename, tokens[:token_count])
 
 

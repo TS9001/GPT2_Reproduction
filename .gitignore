@@ -403,4 +403,5 @@ FodyWeavers.xsd
 **/*.egg-info/
 resources/**/*
 results/**/*
+result/**/*
 .vscode/**/*
