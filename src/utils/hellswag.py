@@ -78,7 +78,8 @@ def evaluate_hellswag(model, device, dataset_target_dir, ddp_world_size, ddp_ran
 
             tokens = tokens.to(device)
             mask = mask.to(device)
-            with torch.no_grad(), torch._dynamo.disable():
+            # with torch.no_grad(), torch._dynamo.disable():
+            with torch.no_grad():
                 model.eval()
                 with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                     logits, _ = model(tokens)  # Pass both tokens and labels

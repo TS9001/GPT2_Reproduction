@@ -11,6 +11,9 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
 import torch.distributed as dist
 
+if os.name == 'nt':
+    import torch._dynamo
+    torch._dynamo.config.suppress_errors = True
 
 # Constants
 DATASET_TARGET_DIR = os.path.join(os.path.dirname(__file__), '../resources/hellswag')
@@ -32,7 +35,9 @@ EPSILON = float(os.environ.get('EPSILON', 1e-8))
 BETAS1 = float(os.environ.get('BETAS1', 0.9))
 BETA2 = float(os.environ.get('BETA2', 0.95))
 TOTAL_STEPS = int(os.environ.get('TOTAL_STEPS', 19073))
+PRINT_STEPS = int(os.environ.get('PRINT_STEPS', 50))
 BETAS = (BETAS1, BETA2)
+EPOCHS = int(os.environ.get('EPOCHS', 1))
 
 
 def setup_environment():
@@ -167,6 +172,7 @@ def train_model():
 
     if master_process:
         print('Starting training')
+        print(f'Running for epochs: {EPOCHS}')
         print(f'Validation per steps: {VALIDATION_PER_STEPS}')
         print(f'Hellswag steps: {HELLSWAG_STEPS}')
         print(f'Save steps: {SAVE_STEPS}')
@@ -194,61 +200,62 @@ def train_model():
     os.makedirs(RESULT_DIR, exist_ok=True)
     with open(LOG_FILE, "w") as f:
         pass
+    for epoch in range(EPOCHS):
+        for step in range(scheduler.total_steps):
+            last_step = (step == scheduler.total_steps - 1)
+            start = time.time()
 
-    for step in range(scheduler.total_steps):
-        last_step = (step == scheduler.total_steps - 1)
-        start = time.time()
+            if (step > 0 and step % VALIDATION_PER_STEPS == 0) or last_step:
+                total_valid_loss = process_validation(model, valid_data_loader, LOG_FILE, step, device, ddp, master_process)
 
-        if (step > 0 and step % VALIDATION_PER_STEPS == 0) or last_step:
-            total_valid_loss = process_validation(model, valid_data_loader, LOG_FILE, step, device, ddp, master_process)
+            if (step > 0 and step % HELLSWAG_STEPS == 0 or last_step):
+                process_hellswag(model, LOG_FILE, step, device, ddp, ddp_world_size, ddp_rank, master_process)
 
-        if (step > 0 and step % HELLSWAG_STEPS == 0 or last_step):
-            process_hellswag(model, LOG_FILE, step, device, ddp, ddp_world_size, ddp_rank, master_process)
+            if master_process and (step > 0 and (step % SAVE_STEPS == 0 or last_step)):
+                checkpoint = {
+                    'model': raw_model.state_dict(),
+                    'config': raw_model.config,
+                    'step': step,
+                    'val_loss': total_valid_loss.item()
+                }
+                torch.save(checkpoint, os.path.join(RESULT_DIR, f"gpt_2_model_{step:05d}.pt"))
 
-        if master_process and (step > 0 and (step % SAVE_STEPS == 0 or last_step)):
-            checkpoint = {
-                'model': raw_model.state_dict(),
-                'config': raw_model.config,
-                'step': step,
-                'val_loss': total_valid_loss.item()
-            }
-            torch.save(checkpoint, os.path.join(RESULT_DIR, f"gpt_2_model_{step:05d}.pt"))
+            model.train()
+            optimizer.zero_grad()
+            loss_accumulated = 0.0
 
-        model.train()
-        optimizer.zero_grad()
-        loss_accumulated = 0.0
+            for micro_step in range(grad_accumulation_steps):
+                x, y = train_data_loader.next_batch()
+                if ddp:
+                    model.require_backward_grad_sync = (micro_step == grad_accumulation_steps - 1)
+                with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                    _, loss = model(x.to(device), y.to(device))
+                    loss /= grad_accumulation_steps
+                loss_accumulated += loss.detach()
+                loss.backward()
 
-        for micro_step in range(grad_accumulation_steps):
-            x, y = train_data_loader.next_batch()
             if ddp:
-                model.require_backward_grad_sync = (micro_step == grad_accumulation_steps - 1)
-            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-                _, loss = model(x.to(device), y.to(device))
-                loss /= grad_accumulation_steps
-            loss_accumulated += loss.detach()
-            loss.backward()
+                dist.all_reduce(loss_accumulated, op=dist.ReduceOp.AVG)
+            norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            optimizer.set_learning_rate(scheduler.get_lr(step))
+            optimizer.step()
+            if device == "cuda":
+                torch.cuda.synchronize()
 
-        if ddp:
-            dist.all_reduce(loss_accumulated, op=dist.ReduceOp.AVG)
-        norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        optimizer.set_learning_rate(scheduler.get_lr(step))
-        optimizer.step()
-        if device == "cuda":
-            torch.cuda.synchronize()
+            end = time.time()
+            tokens_per_sec = tokens_per_batch / (end - start)
+            total_tokens += tokens_per_batch
 
-        end = time.time()
-        tokens_per_sec = tokens_per_batch / (end - start)
-        total_tokens += tokens_per_batch
+            if master_process:
+                if step % PRINT_STEPS == 0:
+                    print(f'<Step {step}> loss:{loss_accumulated}, lr: {optimizer.lr}, norm:{norm}, tok/sec:{tokens_per_sec:.2f}, time:{(end - start)*1000:.2f} ms')
+                    with open(LOG_FILE, "a") as f:
+                        f.write(f"{step} train {loss_accumulated:.6f}\n")
 
-        if master_process:
-            if step % 50 == 0:
-                print(f'<Step {step}> loss:{loss_accumulated}, lr: {optimizer.lr}, norm:{norm}, tok/sec:{tokens_per_sec:.2f}, time:{(end - start)*1000:.2f} ms')
-                with open(LOG_FILE, "a") as f:
-                    f.write(f"{step} train {loss_accumulated:.6f}\n")
-
-    train_end = time.time()
-    print(f'Training took: {(train_end - train_start):.2f} sec, avg tok/sec: {total_tokens / (train_end - train_start):.2f}')
-
+        train_end = time.time()
+        print(f'Training took: {(train_end - train_start):.2f} sec, avg tok/sec: {total_tokens / (train_end - train_start):.2f}')
+    train_data_loader.reset()
+    valid_data_loader.reset()
     if ddp:
         destroy_process_group()
 

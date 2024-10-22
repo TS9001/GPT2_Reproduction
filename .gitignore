@@ -402,3 +402,5 @@ FodyWeavers.xsd
 .history/
 **/*.egg-info/
 resources/**/*
+results/**/*
+.vscode/**/*
