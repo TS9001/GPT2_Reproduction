@@ -6,6 +6,7 @@ import torch
 import logging
 import tiktoken
 from torch.nn import functional as F
+import torch._dynamo
 
 source = "https://raw.githubusercontent.com/rowanz/hellaswag/master/data/hellaswag_val.jsonl"
 
@@ -60,6 +61,7 @@ def load_example(example, enc, device):
 
 
 def evaluate_hellswag(model, device, dataset_target_dir, ddp_world_size, ddp_rank):
+    import torch.distributed as dist
 
     with open(os.path.join(dataset_target_dir, "hellswag.jsonl"), "r") as f:
         examples = []
@@ -67,9 +69,12 @@ def evaluate_hellswag(model, device, dataset_target_dir, ddp_world_size, ddp_ran
             examples.append(json.loads(line))
 
     enc = tiktoken.get_encoding("gpt2")
-    total = 0
-    correct = 0
-    correct_normalized = 0
+    total = torch.tensor(0, dtype=torch.long, device=device)
+    correct = torch.tensor(0, dtype=torch.long, device=device)
+    correct_normalized = torch.tensor(0, dtype=torch.long, device=device)
+
+    torch._dynamo.config.optimize_ddp = False
+
     try:
         for i, example in enumerate(examples):
             if i % ddp_world_size != ddp_rank:
@@ -78,14 +83,15 @@ def evaluate_hellswag(model, device, dataset_target_dir, ddp_world_size, ddp_ran
 
             tokens = tokens.to(device)
             mask = mask.to(device)
-            # with torch.no_grad(), torch._dynamo.disable():
+
             with torch.no_grad():
                 model.eval()
                 with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-                    logits, _ = model(tokens)  # Pass both tokens and labels
+                    logits, _ = model(tokens)
+
             epsilon = 1e-8
-            shift_logits = (logits[:, :-1, :]).contiguous()  # B T V
-            shift_tokens = (tokens[:, 1:]).contiguous()  # B T
+            shift_logits = (logits[:, :-1, :]).contiguous()
+            shift_tokens = (tokens[:, 1:]).contiguous()
 
             flat_logits = shift_logits.view(-1, shift_logits.size(-1))
             flat_tokens = shift_tokens.view(-1)
@@ -101,14 +107,70 @@ def evaluate_hellswag(model, device, dataset_target_dir, ddp_world_size, ddp_ran
             predictions = sum_loss.argmin().item()
             predictions_normalized = avg_loss.argmin().item()
 
-            total += 1
-            correct += int(predictions == labels)
-            correct_normalized += int(predictions_normalized == labels)
+            total = total + torch.tensor(1, dtype=torch.long, device=device)
+            correct = correct + torch.tensor(int(predictions == labels), dtype=torch.long, device=device)
+            correct_normalized = correct_normalized + torch.tensor(int(predictions_normalized == labels), dtype=torch.long, device=device)
 
         return total, correct, correct_normalized
+
     except Exception as e:
         logging.error(f"Error in evaluation: {e}", exc_info=True)
         raise e
+    finally:
+        torch._dynamo.config.optimize_ddp = True
+
+
+def process_hellswag(model, log_file, step, device, ddp, ddp_world_size, ddp_rank, master_process):
+    """
+    Process HellSwag evaluation with proper distributed handling
+    """
+    import torch.distributed as dist
+    from datetime import datetime
+
+    # Create the dataset directory if it doesn't exist
+    dataset_target_dir = "data"
+    os.makedirs(dataset_target_dir, exist_ok=True)
+
+    # Get raw tensors from evaluation
+    total_tensor, correct_tensor, correct_normalized_tensor = evaluate_hellswag(
+        model, device, dataset_target_dir, ddp_world_size, ddp_rank
+    )
+
+    # Perform all_reduce operations if using DDP
+    if ddp and ddp_world_size > 1:
+        dist.all_reduce(total_tensor, op=dist.ReduceOp.SUM)
+        dist.all_reduce(correct_tensor, op=dist.ReduceOp.SUM)
+        dist.all_reduce(correct_normalized_tensor, op=dist.ReduceOp.SUM)
+
+    # Convert to Python numbers after all_reduce
+    total = total_tensor.item()
+    correct = correct_tensor.item()
+    correct_normalized = correct_normalized_tensor.item()
+
+    # Calculate accuracies
+    accuracy = (correct / total * 100) if total > 0 else 0.0
+    accuracy_normalized = (correct_normalized / total * 100) if total > 0 else 0.0
+
+    # Log results (only master process should do this)
+    if master_process:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_entry = {
+            "timestamp": timestamp,
+            "step": step,
+            "total_examples": total,
+            "correct": correct,
+            "correct_normalized": correct_normalized,
+            "accuracy": accuracy,
+            "accuracy_normalized": accuracy_normalized
+        }
+
+        with open(log_file, "a") as f:
+            json.dump(log_entry, f)
+            f.write("\n")
+
+        print(f"Step {step}: Accuracy = {accuracy:.2f}%, Normalized Accuracy = {accuracy_normalized:.2f}%")
+
+    return accuracy, accuracy_normalized
 
 
 if __name__ == "__main__":
