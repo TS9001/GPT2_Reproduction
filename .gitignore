@@ -397,7 +397,6 @@ FodyWeavers.xsd
 # JetBrains Rider
 *.sln.iml
 
-
 .venv/
 .history/
 **/*.egg-info/
@@ -405,3 +404,4 @@ resources/**/*
 results/**/*
 result/**/*
 .vscode/**/*
+wandb/**/*

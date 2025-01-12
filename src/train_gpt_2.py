@@ -1,7 +1,7 @@
 import os
 import time
 import torch
-from models.gpt_2_basic import GPT2Configuration, GPT2Basic
+from models.gpt_2_baseline_liger import GPT2Configuration, GPT2Basic
 from utils.schedulers import CosineScheduler
 from utils.optimizer import Optimizer
 from utils.data_loader_fineweb import FinewebEduDataset
@@ -10,6 +10,8 @@ import tiktoken
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
 import torch.distributed as dist
+import wandb
+from datetime import datetime
 
 if os.name == 'nt':
     import torch._dynamo
@@ -22,10 +24,11 @@ HELLSWAG_STEPS = int(os.environ.get('HELLSWAG_STEPS', 500))
 SAVE_STEPS = int(os.environ.get('SAVE_STEPS', 500))
 SOURCE = "https://raw.githubusercontent.com/rowanz/hellaswag/master/data/hellaswag_val.jsonl"
 GPT2_SMALL = "gpt2"
-CONFIGURATION = GPT2Configuration(num_layers=12, num_heads=12, d_model=768)
+USE_LIGER = os.environ.get('USE_LIGER', 'True') == 'True'
+CONFIGURATION = GPT2Configuration(num_layers=12, num_heads=12, d_model=768, use_liger=USE_LIGER)
 RESULT_DIR = "result"
 LOG_FILE = os.path.join(RESULT_DIR, "log.txt")
-MICRO_BATCH_SIZE = int(os.environ.get('MICRO_BATCH_SIZE', 18))
+MICRO_BATCH_SIZE = int(os.environ.get('MICRO_BATCH_SIZE', 64))
 SEQUENCE_LENGTH = int(os.environ.get('SEQUENCE_LENGTH', 1024))
 TOTAL_BATCH_SIZE = int(os.environ.get('TOTAL_BATCH_SIZE', 524288))
 LEARNING_RATE = float(os.environ.get('LEARNING_RATE', 6e-4))
@@ -114,7 +117,7 @@ def process_validation(model, valid_data_loader, log_file, step, device, ddp, ma
     model.eval()
     valid_data_loader.reset()
     valid_steps = 20
-
+    torch._dynamo.config.optimize_ddp = False
     for validation_steps in range(valid_steps):
         x, y = valid_data_loader.next_batch()
         with torch.no_grad():
@@ -132,6 +135,7 @@ def process_validation(model, valid_data_loader, log_file, step, device, ddp, ma
         with open(log_file, "a") as f:
             f.write(f"{step} val {total_loss.item():.4f}\n")
 
+    torch._dynamo.config.optimize_ddp = True
     return total_loss
 
 
@@ -150,10 +154,51 @@ def process_hellswag(model, log_file, step, device, ddp, ddp_world_size, ddp_ran
             f.write(f"{step} hella {(correct / total):.4f}\n")
 
 
+def process_micro_batch(model, train_data_loader, device, training_config):
+    loss_accumulated = 0.0
+    for micro_step in range(training_config['grad_accumulation_steps']):
+        x, y = train_data_loader.next_batch()
+        if training_config['ddp']:
+            model.require_backward_grad_sync = (micro_step == training_config['grad_accumulation_steps'] - 1)
+        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+            _, loss = model(x.to(device), y.to(device))
+            loss = loss / training_config['grad_accumulation_steps']
+        loss_accumulated += loss.detach()
+        loss.backward()
+    return loss_accumulated
+
+
 def train_model():
     """Main function to train the model."""
     setup_environment()
     ddp, ddp_rank, ddp_local_rank, ddp_world_size, master_process, device = initialize_ddp()
+
+    # Initialize wandb (only on master process)
+    if master_process:
+        # Get current datetime and format it
+        current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Get the script name without extension
+        script_name = os.path.splitext(os.path.basename(__file__))[0]
+        # Create run name
+        run_name = f"{script_name}_{current_time}"
+
+        wandb.init(
+            project="gpt2-baseline",
+            name=run_name,
+            config={
+                "epochs": EPOCHS,
+                "batch_size": TOTAL_BATCH_SIZE,
+                "learning_rate": LEARNING_RATE,
+                "sequence_length": SEQUENCE_LENGTH,
+                "warmup_steps": WARMUP_STEPS,
+                "weight_decay": WEIGHT_DECAY,
+                "epsilon": EPSILON,
+                "betas": BETAS,
+                "use_liger": CONFIGURATION.use_liger,
+                "model_config": CONFIGURATION.__dict__
+            }
+        )
+
     download_hellswag_dataset(SOURCE, dirname=DATASET_TARGET_DIR)
     model, raw_model = setup_model(device, ddp, ddp_local_rank)
     tokenizer = tiktoken.get_encoding('gpt2')
@@ -171,6 +216,11 @@ def train_model():
     optimizer = Optimizer(raw_model, lr=LEARNING_RATE, betas=BETAS, eps=EPSILON, weight_decay=WEIGHT_DECAY)
     scheduler = CosineScheduler(max_lr=LEARNING_RATE, warmup_steps=WARMUP_STEPS, min_lr=MIN_LR, total_steps=TOTAL_STEPS)
     grad_accumulation_steps = TOTAL_BATCH_SIZE // (MICRO_BATCH_SIZE * SEQUENCE_LENGTH * ddp_world_size)
+
+    training_config = {
+        'ddp': ddp,
+        'grad_accumulation_steps': grad_accumulation_steps,
+    }
 
     if master_process:
         print('Starting training')
@@ -194,6 +244,7 @@ def train_model():
         print(f'DDP world size: {ddp_world_size}')
         print(f'Device: {device}')
         print(f'Save on last: {SAVE_ON_LAST}')
+        print(f'Use liger: {CONFIGURATION.use_liger}')
 
     train_start = time.time()
     tokens_per_batch = MICRO_BATCH_SIZE * SEQUENCE_LENGTH * grad_accumulation_steps * ddp_world_size
@@ -212,9 +263,25 @@ def train_model():
 
             if (step > 0 and step % VALIDATION_PER_STEPS == 0) or (last_step and SAVE_ON_LAST):
                 total_valid_loss = process_validation(model, valid_data_loader, LOG_FILE, step, device, ddp, master_process)
+                if master_process:
+                    wandb.log({
+                        "validation_loss": total_valid_loss.item(),
+                        "step": step
+                    })
 
             if (step > 0 and step % HELLSWAG_STEPS == 0 or (last_step and SAVE_ON_LAST)):
-                process_hellswag(model, LOG_FILE, step, device, ddp, ddp_world_size, ddp_rank, master_process)
+                total, correct, correct_normalized = evaluate_hellswag(model, device, DATASET_TARGET_DIR, ddp_world_size, ddp_rank)
+                if ddp:
+                    dist.all_reduce(total, op=dist.ReduceOp.SUM)
+                    dist.all_reduce(correct, op=dist.ReduceOp.SUM)
+                    dist.all_reduce(correct_normalized, op=dist.ReduceOp.SUM)
+
+                if master_process:
+                    wandb.log({
+                        "hellswag_acc": correct / total,
+                        "hellswag_acc_normalized": correct_normalized / total,
+                        "step": step
+                    })
 
             if master_process and ((step > 0 and step % SAVE_STEPS == 0) or (last_step and SAVE_ON_LAST)):
                 checkpoint = {
@@ -227,17 +294,13 @@ def train_model():
 
             model.train()
             optimizer.zero_grad()
-            loss_accumulated = 0.0
 
-            for micro_step in range(grad_accumulation_steps):
-                x, y = train_data_loader.next_batch()
-                if ddp:
-                    model.require_backward_grad_sync = (micro_step == grad_accumulation_steps - 1)
-                with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-                    _, loss = model(x.to(device), y.to(device))
-                    loss /= grad_accumulation_steps
-                loss_accumulated += loss.detach()
-                loss.backward()
+            loss_accumulated = process_micro_batch(
+                model,
+                train_data_loader,
+                device,
+                training_config
+            )
 
             if ddp:
                 dist.all_reduce(loss_accumulated, op=dist.ReduceOp.AVG)
@@ -256,6 +319,13 @@ def train_model():
                     print(f'<Step {step}> loss:{loss_accumulated}, lr: {optimizer.lr}, norm:{norm}, tok/sec:{tokens_per_sec:.2f}, time:{(end - start)*1000:.2f} ms')
                     with open(LOG_FILE, "a") as f:
                         f.write(f"{step} train {loss_accumulated:.6f}\n")
+                wandb.log({
+                    "train_loss": loss_accumulated,
+                    "learning_rate": optimizer.lr,
+                    "gradient_norm": norm,
+                    "tokens_per_second": tokens_per_sec,
+                    "step": step
+                })
 
         epoch_end = time.time()
         if master_process:
@@ -268,6 +338,9 @@ def train_model():
 
     train_end = time.time()
     print(f'Training took: {(train_end - train_start):.2f} sec, avg tok/sec: {total_tokens / (train_end - train_start):.2f}')
+
+    if master_process:
+        wandb.finish()
 
     if ddp:
         destroy_process_group()
