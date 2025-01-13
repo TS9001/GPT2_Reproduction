@@ -13,3 +13,6 @@ Liger is very unstable lately, use it wisely.
 4. <TODO> BYTE LATENT TRANSFORMER https://arxiv.org/abs/2412.09871
 5. <TODO> Special versions of attentintion architectures
 6. <TODO> ....
+
+# Big TODO:
+* Fix the code structure to organize experiments better.
