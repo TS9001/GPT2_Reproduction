@@ -8,3 +8,7 @@ torch
 tqdm
 datasets
 wandb
+ipykernel
+pytest
+matplotlib
+seaborn

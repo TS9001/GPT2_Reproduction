@@ -16,7 +16,7 @@ call venv\Scripts\activate
 :: Install requirements
 echo === Installing requirements ===
 pip install -r requirements.txt
-
+pip install -e .
 :: Login to Weights & Biases
 echo === Logging into Weights & Biases ===
 wandb login
@@ -31,7 +31,7 @@ python src/download_fineweb_dataset.py
 
 :: Start training
 echo === Starting training ===
-python src/train_gpt_2.py
+torchrun --standalone --nproc_per_node=auto src/train_gpt_2.py
 
 echo === Process completed ===
 pause

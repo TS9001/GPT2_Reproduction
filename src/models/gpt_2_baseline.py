@@ -113,11 +113,9 @@ class GPT2Basic(nn.Module):
             x = layer(x)
 
         x = self.transformer.ln_f(x)
-        logits = None
-        if return_logits:
-            logits = self.lm_head(x)
 
         if y is not None:
+                logits = self.lm_head(x)
                 loss = nn.functional.cross_entropy(
                     logits.view(-1, logits.size(-1)), y.view(-1))
 

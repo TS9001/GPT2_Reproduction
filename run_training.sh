@@ -28,6 +28,7 @@ source venv/bin/activate
 # Install requirements
 echo "=== Installing requirements ==="
 pip install -r requirements.txt
+pip install -e .
 if [ $? -ne 0 ]; then
     echo "Error installing requirements"
     exit 1
@@ -51,6 +52,6 @@ fi
 
 # Start training
 echo "=== Starting training ==="
-python3 src/train_gpt_2.py
+torchrun --standalone --nproc_per_node=auto src/train_gpt_2.py
 
 echo "=== Process completed ==="

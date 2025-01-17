@@ -161,7 +161,7 @@ def process_micro_batch(model, train_data_loader, device, training_config):
         if training_config['ddp']:
             model.require_backward_grad_sync = (micro_step == training_config['grad_accumulation_steps'] - 1)
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-            _, loss = model(x.to(device), y.to(device))
+            _, loss = model(x.to(device), y.to(device), return_logits=False)
             loss = loss / training_config['grad_accumulation_steps']
         loss_accumulated += loss.detach()
         loss.backward()
