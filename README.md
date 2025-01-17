@@ -5,7 +5,6 @@ all my local experiments to this repo.
 
 Code is definatelly not production-grade engineering code but it should be understandable and readable.
 
-
 # Experiments
 1. <DONE> Plain clean GPT2
 2. <DONE> LIGER Kernels added for basic operations
@@ -27,3 +26,6 @@ Code is definatelly not production-grade engineering code but it should be under
 
 ### LIGER Kernels
 Liger is very unstable lately, use it wisely.
+
+### Big TODO:
+* Fix the code structure to organize experiments better.
