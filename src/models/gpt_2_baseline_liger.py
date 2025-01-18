@@ -50,7 +50,7 @@ class Attention(nn.Module):
 
         q_rotated = (q * cos) + (q_ri * sin)
         k_rotated = (k * cos) + (k_ri * sin)
-        return q_rotated.to(self.rope_dtype), k_rotated.to(self.rope_dtype)
+        return q_rotated.to(q.dtype), k_rotated.to(k.dtype)
 
     def forward(self, x_bsd):  # [batch,seq,dim]
         B, S, D = x_bsd.size()

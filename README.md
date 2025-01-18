@@ -24,8 +24,16 @@ Code is definatelly not production-grade engineering code but it should be under
 * `src` - source code. Pretty much standard pytorch code.
 * `tests` - tests. Usually generated with LLMs acording to specs.
 
+## Notes
+### Benchmarks
+Sometimes i benchmark something. Take it with a grain of salt. My GPU is running on steam engine and my OS is Windows with WSL (ok i know i am greavely ashamed).
+I usualy train on remote that i have to pay myself, as someone from central europe, it is rather expensive. That is why I like to benchmark little bit before i change something.
+This is not to measure anything, just to see if my intuition is correct and underlying system works as I expect. Also you know the saying: "Measure twice, cut once". (or "Better safe than sorry" in other words).
+
 ### LIGER Kernels
-Liger is very unstable lately, use it wisely.
+Liger is very unstable lately, use it wisely. In addition, liger is optimized for small batch sizes and its speed-up on scale of experiments that i do is not that big.
+On the other hand, liger is good also for verification of correctness of the code.
 
 ### Big TODO:
-* Fix the code structure to organize experiments better.
+* Fix the code structure to organize experiments better. I do this in my free time. I do not have time to make this code production-grade, but I assure you,
+one day I will take time off and make it shiny as a diamond.
