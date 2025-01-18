@@ -30,43 +30,25 @@ class Attention(nn.Module):
         self.c_proj = nn.Linear(config.d_model, config.d_model)
         self.c_proj.NANOGPT_SCALE_INIT = 1
         self.num_heads = self.config.num_heads
-        freqs_cis_sp = self.precompute_freqs_cis(config.d_model // self.num_heads, config.block_size)
-
-        if not config.use_liger:
-            self.register_buffer( 'freqs_cis_sp', freqs_cis_sp) # [seq, pairs]
-        else:
-            self.register_buffer("cos_sp",  torch.cat([freqs_cis_sp.real,  freqs_cis_sp.real], dim=-1).unsqueeze(0))  # [1, seq, dim]
-            self.register_buffer("sin_sp",  torch.cat([freqs_cis_sp.imag , freqs_cis_sp.imag], dim=-1).unsqueeze(0))  # [1, seq, dim]
+        cos, sin = self.precompute_freqs_cis(config.d_model // self.num_heads, config.block_size)
+        self.register_buffer("cos_sp",  torch.cat([cos, cos], dim=-1).unsqueeze(0))  # [1, seq, dim]
+        self.register_buffer("sin_sp",  torch.cat([sin, sin], dim=-1).unsqueeze(0))  # [1, seq, dim]
 
     def precompute_freqs_cis(self, dim: int, end: int,  theta=10000.0):
         freqs = 1.0 / (theta ** (torch.arange(0, dim , 2, dtype=torch.float32) / (dim)))
-        t = torch.arange(end,  dtype=torch.float32)
-        freqs = torch.outer(t, freqs)  # [end, dim/2]
-        freqs_cis = torch.complex(torch.cos(freqs), torch.sin(freqs))
+        freqs = torch.outer(torch.arange(end,  dtype=torch.float32), freqs)  # [end, dim/2]
+        return torch.cos(freqs), torch.sin(freqs)
 
-        return freqs_cis
+    def apply_rotary_position_embedding(self, q, k,  cos, sin):
+        q_ri =  torch.cat((-q[..., q.shape[-1] // 2:], q[..., :q.shape[-1] // 2]), dim=-1)
+        k_ri =  torch.cat((-k[..., k.shape[-1] // 2:], k[..., :k.shape[-1] // 2]), dim=-1)
 
-    def apply_rotary_position_embedding(self, q, k, freqs_cis_sp):  # [batch,heads,seq,dim]
-        # Reorder q, k so that their last dim is [half, 2]
+        cos = cos.unsqueeze(1)
+        sin = sin.unsqueeze(1)
 
-        q_ri =  torch.stack((q[..., :q.shape[-1] // 2], q[..., q.shape[-1] // 2:]), dim=-1)
-        k_ri =  torch.stack((k[..., :k.shape[-1] // 2], k[..., k.shape[-1] // 2:]), dim=-1)
-        q_complex = torch.view_as_complex(q_ri.float())  # shape [batch, heads, seq, half]
-        k_complex = torch.view_as_complex(k_ri.float())
-        # Multiply => apply rotation
-        q_rotated = q_complex * freqs_cis_sp   # shape [batch, heads, seq, half]
-        k_rotated = k_complex * freqs_cis_sp
-
-        # Convert back to real
-        q_ri_out = torch.view_as_real(q_rotated)  # shape [..., half, 2]
-        k_ri_out = torch.view_as_real(k_rotated)
-
-        # "Unstack" them so that the last dimension is 2*half = dim
-        # which is [real, imag] => cat => [..., dim]
-        q_out = torch.cat([q_ri_out[..., 0], q_ri_out[..., 1]], dim=-1)
-        k_out = torch.cat([k_ri_out[..., 0], k_ri_out[..., 1]], dim=-1)
-
-        return q_out, k_out
+        q_rotated = (q * cos) + (q_ri * sin)
+        k_rotated = (k * cos) + (k_ri * sin)
+        return q_rotated, k_rotated
 
     def forward(self, x_bsd):  # [batch,seq,dim]
         B, S, D = x_bsd.size()
@@ -77,7 +59,7 @@ class Attention(nn.Module):
         q_bhsd, k_bhsd, v_bhsd = qkv_bhsd
 
         if not self.config.use_liger:
-            q_bhsd, k_bhsd = self.apply_rotary_position_embedding(q_bhsd, k_bhsd, self.freqs_cis_sp[:S])
+            q_bhsd, k_bhsd = self.apply_rotary_position_embedding(q_bhsd, k_bhsd, self.cos_sp[:, :S], self.sin_sp[:, :S])
         else:
                 q_bhsd, k_bhsd = LigerRopeFunction.apply(
                     q_bhsd, k_bhsd,
@@ -89,22 +71,6 @@ class Attention(nn.Module):
         y_bhsd = torch.nn.functional.scaled_dot_product_attention(q_bhsd, k_bhsd, v_bhsd, is_causal=True)
         y_bsd = self.c_proj(y_bhsd.transpose(1, 2).contiguous().view(B, S, D))
         return y_bsd
-
-    def reinit_rope_buffers(self):
-        """Reinitialize ROPE buffers based on current config"""
-        freqs_cis_sp = self.precompute_freqs_cis(self.config.d_model // self.num_heads, self.config.block_size)
-
-        # Remove existing buffers
-        self._buffers.pop('freqs_cis_sp', None)
-        self._buffers.pop('cos_sp', None)
-        self._buffers.pop('sin_sp', None)
-
-        # Register appropriate buffers based on config
-        if not self.config.use_liger:
-            self.register_buffer('freqs_cis_sp', freqs_cis_sp)
-        else:
-            self.register_buffer("cos_sp", torch.cat([freqs_cis_sp.real, freqs_cis_sp.real], dim=-1).unsqueeze(0))
-            self.register_buffer("sin_sp", torch.cat([freqs_cis_sp.imag, freqs_cis_sp.imag], dim=-1).unsqueeze(0))
 
 
 class RMSNorm(nn.Module):
