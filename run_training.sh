@@ -49,6 +49,26 @@ if [ $? -ne 0 ]; then
     echo "Error downloading dataset"
     exit 1
 fi
+# Set environment variables
+echo "=== Setting environment variables ==="
+export VALIDATION_PER_STEPS=500
+export HELLSWAG_STEPS=500
+export SAVE_STEPS=500
+export USE_LIGER=True
+export MICRO_BATCH_SIZE=64
+export SEQUENCE_LENGTH=1024
+export TOTAL_BATCH_SIZE=524288
+export LEARNING_RATE=6e-4
+export WARMUP_STEPS=715
+export WEIGHT_DECAY=0.1
+export EPSILON=1e-8
+export BETAS1=0.9
+export BETA2=0.95
+export TOTAL_STEPS=19073
+export PRINT_STEPS=50
+export EPOCHS=1
+export SAVE_ON_LAST=True
+export MIN_LR=6e-5
 
 # Start training
 echo "=== Starting training ==="

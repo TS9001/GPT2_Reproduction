@@ -29,6 +29,27 @@ if errorlevel 1 (
 echo === Downloading Fineweb dataset ===
 python src/download_fineweb_dataset.py
 
+:: Set environment variables
+echo === Setting environment variables ===
+set VALIDATION_PER_STEPS=500
+set HELLSWAG_STEPS=500
+set SAVE_STEPS=500
+set USE_LIGER=True
+set MICRO_BATCH_SIZE=64
+set SEQUENCE_LENGTH=1024
+set TOTAL_BATCH_SIZE=524288
+set LEARNING_RATE=6e-4
+set WARMUP_STEPS=715
+set WEIGHT_DECAY=0.1
+set EPSILON=1e-8
+set BETAS1=0.9
+set BETA2=0.95
+set TOTAL_STEPS=19073
+set PRINT_STEPS=50
+set EPOCHS=1
+set SAVE_ON_LAST=True
+set MIN_LR=6e-5
+
 :: Start training
 echo === Starting training ===
 torchrun --standalone --nproc_per_node=auto src/train_gpt_2.py

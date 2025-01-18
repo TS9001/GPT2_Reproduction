@@ -12,7 +12,8 @@ class GPT2Configuration:
         num_heads: int = 12,
         d_model: int = 768,
         vocab_size: int = 50304,
-        use_liger: bool = False
+        use_liger: bool = False,
+        rope_dtype: torch.dtype = torch.float32
     ):
         self.num_layers = num_layers
         self.block_size = block_size
@@ -20,7 +21,7 @@ class GPT2Configuration:
         self.d_model = d_model
         self.vocab_size = vocab_size
         self.use_liger = use_liger
-
+        self.rope_dtype = rope_dtype
 
 class Attention(nn.Module):
     def __init__(self, config: GPT2Configuration):
@@ -30,13 +31,14 @@ class Attention(nn.Module):
         self.c_proj = nn.Linear(config.d_model, config.d_model)
         self.c_proj.NANOGPT_SCALE_INIT = 1
         self.num_heads = self.config.num_heads
+        self.rope_dtype = config.rope_dtype
         cos, sin = self.precompute_freqs_cis(config.d_model // self.num_heads, config.block_size)
         self.register_buffer("cos_sp",  torch.cat([cos, cos], dim=-1).unsqueeze(0))  # [1, seq, dim]
         self.register_buffer("sin_sp",  torch.cat([sin, sin], dim=-1).unsqueeze(0))  # [1, seq, dim]
 
     def precompute_freqs_cis(self, dim: int, end: int,  theta=10000.0):
-        freqs = 1.0 / (theta ** (torch.arange(0, dim , 2, dtype=torch.float32) / (dim)))
-        freqs = torch.outer(torch.arange(end,  dtype=torch.float32), freqs)  # [end, dim/2]
+        freqs = 1.0 / (theta ** (torch.arange(0, dim , 2, dtype=self.rope_dtype) / (dim)))
+        freqs = torch.outer(torch.arange(end,  dtype=self.rope_dtype), freqs)  # [end, dim/2]
         return torch.cos(freqs), torch.sin(freqs)
 
     def apply_rotary_position_embedding(self, q, k,  cos, sin):
@@ -48,7 +50,7 @@ class Attention(nn.Module):
 
         q_rotated = (q * cos) + (q_ri * sin)
         k_rotated = (k * cos) + (k_ri * sin)
-        return q_rotated, k_rotated
+        return q_rotated.to(self.rope_dtype), k_rotated.to(self.rope_dtype)
 
     def forward(self, x_bsd):  # [batch,seq,dim]
         B, S, D = x_bsd.size()
