@@ -1,7 +1,9 @@
 import os
 import time
 import torch
-from models.gpt_2_baseline_liger import GPT2Configuration, GPT2Basic
+from models.transformer_plus import GPT2Basic as TransformerPlusBasic
+from models.gpt_2 import GPT2Basic
+from models.model_configuration import ModelConfiguration
 from utils.schedulers import CosineScheduler
 from utils.optimizer import Optimizer
 from utils.data_loader_fineweb import FinewebEduDataset
@@ -25,7 +27,6 @@ SAVE_STEPS = int(os.environ.get('SAVE_STEPS', 500))
 SOURCE = "https://raw.githubusercontent.com/rowanz/hellaswag/master/data/hellaswag_val.jsonl"
 GPT2_SMALL = "gpt2"
 USE_LIGER = os.environ.get('USE_LIGER', 'True') == 'True'
-CONFIGURATION = GPT2Configuration(num_layers=12, num_heads=12, d_model=768, use_liger=USE_LIGER)
 RESULT_DIR = "result"
 LOG_FILE = os.path.join(RESULT_DIR, "log.txt")
 MICRO_BATCH_SIZE = int(os.environ.get('MICRO_BATCH_SIZE', 64))
@@ -43,7 +44,7 @@ BETAS = (BETAS1, BETA2)
 EPOCHS = int(os.environ.get('EPOCHS', 1))
 SAVE_ON_LAST = os.environ.get('SAVE_ON_LAST', 'True') == 'True'
 MIN_LR = float(os.environ.get('MIN_LR', LEARNING_RATE * 0.1))
-
+ARCHITECTURE = os.environ.get('ARCHITECTURE', 'DEFAULT')
 
 def setup_environment():
     """Set up the environment for distributed training."""
@@ -98,9 +99,13 @@ def load_data(tokenizer, ddp_rank, micro_batch_size, max_seq_len, ddp_world_size
     return train_data_loader, valid_data_loader
 
 
-def setup_model(device, ddp, ddp_local_rank):
+def setup_model(device, ddp, ddp_local_rank, model_config):
     """Set up the model for training."""
-    model = GPT2Basic(CONFIGURATION)
+    if ARCHITECTURE == "TRANSFORMER_PLUS":
+        model = TransformerPlusBasic(model_config)
+    else:  # Default to GPT2Basic
+        model = GPT2Basic(model_config)
+
     model = model.to(device)
     model = torch.compile(model)
     raw_model = model
@@ -180,8 +185,10 @@ def train_model():
         # Get the script name without extension
         script_name = os.path.splitext(os.path.basename(__file__))[0]
         # Create run name
-        run_name = f"{script_name}_{current_time}"
-
+        run_name = f"{script_name}_{current_time}_{ARCHITECTURE}"
+        # Create model configuration
+        model_config = ModelConfiguration(num_layers=12, num_heads=12, d_model=768, use_liger=USE_LIGER)
+        # Initialize wandb
         wandb.init(
             project="gpt2-baseline",
             name=run_name,
@@ -194,13 +201,13 @@ def train_model():
                 "weight_decay": WEIGHT_DECAY,
                 "epsilon": EPSILON,
                 "betas": BETAS,
-                "use_liger": CONFIGURATION.use_liger,
-                "model_config": CONFIGURATION.__dict__
+                "use_liger": USE_LIGER,
+                "model_config": model_config.__dict__
             }
         )
 
     download_hellswag_dataset(SOURCE, dirname=DATASET_TARGET_DIR)
-    model, raw_model = setup_model(device, ddp, ddp_local_rank)
+    model, raw_model = setup_model(device, ddp, ddp_local_rank, model_config)
     tokenizer = tiktoken.get_encoding('gpt2')
     train_data_loader, valid_data_loader = load_data(
         tokenizer=tokenizer,

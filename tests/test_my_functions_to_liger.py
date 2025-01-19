@@ -1,6 +1,6 @@
 import torch
 import pytest
-from models.gpt_2_baseline_liger import GPT2Basic, GPT2Configuration, RMSNorm, Attention
+from models.transformer_plus_baseline_liger import GPT2Basic, GPT2Configuration, RMSNorm, Attention
 from liger_kernel.transformers import LigerRMSNorm
 from liger_kernel.transformers.rope import LigerRopeFunction
 

@@ -42,15 +42,22 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# Download the Fineweb dataset
-echo "=== Downloading Fineweb dataset ==="
-python3 src/download_fineweb_dataset.py
-if [ $? -ne 0 ]; then
-    echo "Error downloading dataset"
-    exit 1
+# Download the Fineweb dataset only if needed
+echo "=== Checking Fineweb dataset ==="
+if [ ! -d "resources/edu_fineweb/train" ] || [ ! -d "resources/edu_fineweb/valid" ] || [ -z "$(ls -A resources/edu_fineweb/train)" ] || [ -z "$(ls -A resources/edu_fineweb/valid)" ]; then
+    echo "Dataset not found or empty. Downloading Fineweb dataset..."
+    python3 src/download_fineweb_dataset.py
+    if [ $? -ne 0 ]; then
+        echo "Error downloading dataset"
+        exit 1
+    fi
+else
+    echo "Dataset already exists, skipping download"
 fi
+
 # Set environment variables
 echo "=== Setting environment variables ==="
+export ARCHITECTURE="DEFAULT"
 export VALIDATION_PER_STEPS=500
 export HELLSWAG_STEPS=500
 export SAVE_STEPS=500
@@ -69,6 +76,28 @@ export PRINT_STEPS=50
 export EPOCHS=1
 export SAVE_ON_LAST=True
 export MIN_LR=6e-5
+
+# Print all training environment variables
+echo "=== Training Environment Variables ==="
+echo "ARCHITECTURE: $ARCHITECTURE"
+echo "VALIDATION_PER_STEPS: $VALIDATION_PER_STEPS"
+echo "HELLSWAG_STEPS: $HELLSWAG_STEPS"
+echo "SAVE_STEPS: $SAVE_STEPS"
+echo "USE_LIGER: $USE_LIGER"
+echo "MICRO_BATCH_SIZE: $MICRO_BATCH_SIZE"
+echo "SEQUENCE_LENGTH: $SEQUENCE_LENGTH"
+echo "TOTAL_BATCH_SIZE: $TOTAL_BATCH_SIZE"
+echo "LEARNING_RATE: $LEARNING_RATE"
+echo "WARMUP_STEPS: $WARMUP_STEPS"
+echo "WEIGHT_DECAY: $WEIGHT_DECAY"
+echo "EPSILON: $EPSILON"
+echo "BETAS1: $BETAS1"
+echo "BETA2: $BETA2"
+echo "TOTAL_STEPS: $TOTAL_STEPS"
+echo "PRINT_STEPS: $PRINT_STEPS"
+echo "EPOCHS: $EPOCHS"
+echo "SAVE_ON_LAST: $SAVE_ON_LAST"
+echo "MIN_LR: $MIN_LR"
 
 # Start training
 echo "=== Starting training ==="

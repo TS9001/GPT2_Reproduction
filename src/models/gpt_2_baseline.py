@@ -1,23 +1,6 @@
 import torch
 import torch.nn as nn
-
-class GPT2Configuration:
-    def __init__(
-        self,
-        block_size: int = 1024,
-        num_layers: int = 12,
-        num_heads: int = 12,
-        d_model: int = 768,
-        vocab_size: int = 50304,
-        use_liger: bool = False
-    ):
-        self.num_layers = num_layers
-        self.block_size = block_size
-        self.num_heads = num_heads
-        self.d_model = d_model
-        self.vocab_size = vocab_size
-        self.use_liger = use_liger
-
+from liger_kernel.transformers import LigerFusedLinearCrossEntropyLoss, LigerLayerNorm
 
 class Attention(nn.Module):
 
@@ -64,11 +47,12 @@ class MLP(nn.Module):
 class Block(nn.Module):
     def __init__(self, config: GPT2Configuration):
         super().__init__()
-        self.config = config
-        self.ln_1 = nn.LayerNorm(config.d_model)
-        self.attn = Attention(config)
-        self.ln_2 = nn.LayerNorm(config.d_model)
-        self.mlp = MLP(config)
+        self.config=config
+
+        self.ln_1=LigerLayerNorm(config.d_model) if self.config.use_liger else nn.LayerNorm(config.d_model)
+        self.attn=Attention(config)
+        self.ln_2=LigerLayerNorm(config.d_model) if self.config.use_liger else nn.LayerNorm(config.d_model)
+        self.mlp=MLP(config)
 
     def forward(self, x):
         x = x + self.attn(self.ln_1(x))
@@ -85,7 +69,7 @@ class GPT2Basic(nn.Module):
             wte=nn.Embedding(config.vocab_size, config.d_model),
             wpe=nn.Embedding(config.block_size, config.d_model),
             h=nn.ModuleList([Block(config) for _ in range(config.num_layers)]),
-            ln_f=nn.LayerNorm(config.d_model)
+            ln_f=LigerLayerNorm(config.d_model) if self.config.use_liger else nn.LayerNorm(config.d_model)
         ))
         self.lm_head = torch.nn.Linear(
             config.d_model, config.vocab_size, bias=False)
@@ -114,9 +98,30 @@ class GPT2Basic(nn.Module):
 
         x = self.transformer.ln_f(x)
 
-        if y is not None:
-                logits = self.lm_head(x)
-                loss = nn.functional.cross_entropy(
-                    logits.view(-1, logits.size(-1)), y.view(-1))
+        return self.compute_standard_loss(x, y, return_logits) if not self.config.use_liger else self.compute_liger_loss(x, y, return_logits)
 
+    def compute_standard_loss(self, x_bsd, y, return_logits=True):
+        logits = self.lm_head(x_bsd)
+        loss = None
+
+        if y is None:
+            return logits, None
+
+        loss = nn.functional.cross_entropy(
+            logits.view(-1, self.config.vocab_size),
+            y.view(-1)
+        )
+        return logits if return_logits else None, loss
+
+    def compute_liger_loss(self, x_bsd, y, return_logits=True):
+        if y is None:
+            return self.lm_head(x_bsd), None
+
+        loss = LigerFusedLinearCrossEntropyLoss()(
+            self.lm_head.weight.to(torch.bfloat16),
+            x_bsd.view(-1, x_bsd.size(-1)).to(torch.bfloat16),
+            y.view(-1)
+        )
+
+        logits = self.lm_head(x_bsd) if return_logits else None
         return logits, loss

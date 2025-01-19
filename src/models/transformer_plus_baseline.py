@@ -2,29 +2,11 @@ import torch
 import torch.nn as nn
 from liger_kernel.transformers import LigerFusedLinearCrossEntropyLoss, LigerRMSNorm
 from liger_kernel.transformers.rope import LigerRopeFunction
-
-class GPT2Configuration:
-    # dimension suffixes: b = batch, h = heads, s = sequence, d = dimension, p = pairs, v = vocab
-    def __init__(
-        self,
-        block_size: int = 1024,
-        num_layers: int = 12,
-        num_heads: int = 12,
-        d_model: int = 768,
-        vocab_size: int = 50304,
-        use_liger: bool = False,
-        rope_dtype: torch.dtype = torch.float32
-    ):
-        self.num_layers = num_layers
-        self.block_size = block_size
-        self.num_heads = num_heads
-        self.d_model = d_model
-        self.vocab_size = vocab_size
-        self.use_liger = use_liger
-        self.rope_dtype = rope_dtype
+from models.model_configuration import ModelConfiguration
+from torch.nn import functional as F
 
 class Attention(nn.Module):
-    def __init__(self, config: GPT2Configuration):
+    def __init__(self, config: ModelConfiguration):
         super().__init__()
         self.config = config
         self.c_attn = nn.Linear(config.d_model, config.d_model*3)
@@ -86,19 +68,19 @@ class RMSNorm(nn.Module):
 
 
 class MLP(nn.Module):
-    def __init__(self, config: GPT2Configuration):
+    def __init__(self, config: ModelConfiguration):
         super().__init__()
-        self.c_fc = nn.Linear(config.d_model, config.d_model*4)
-        self.act = nn.SiLU()
-        self.c_proj = nn.Linear(config.d_model*4, config.d_model)
-        self.c_proj.NANOGPT_SCALE_INIT = 1
+        self.w1 = nn.Linear(config.d_model, config.d_model * 4)
+        self.w2 = nn.Linear(config.d_model * 4, config.d_model)
+        self.w3 = nn.Linear(config.d_model, config.d_model * 4)
+        self.w2.NANOGPT_SCALE_INIT = 1
 
     def forward(self, x_bsd):
-        return self.c_proj(self.act(self.c_fc(x_bsd)))
+        return self.w2(F.silu(self.w1(x_bsd)) * self.w3(x_bsd))
 
 
 class Block(nn.Module):
-    def __init__(self, config: GPT2Configuration):
+    def __init__(self, config: ModelConfiguration):
         super().__init__()
         self.config = config
         self.ln_1 = LigerRMSNorm(config.d_model) if config.use_liger else RMSNorm(config.d_model)
@@ -113,7 +95,7 @@ class Block(nn.Module):
 
 
 class GPT2Basic(nn.Module):
-    def __init__(self, config: GPT2Configuration):
+    def __init__(self, config: ModelConfiguration):
         super().__init__()
         self.config = config
 
