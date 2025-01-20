@@ -1,3 +1,6 @@
+import torch
+from torch import dtype
+
 class ModelConfiguration:
     def __init__(
         self,
@@ -6,7 +9,8 @@ class ModelConfiguration:
         num_heads: int = 12,
         d_model: int = 768,
         vocab_size: int = 50304,
-        use_liger: bool = False
+        use_liger: bool = False,
+        rope_dtype: dtype = torch.float32
     ):
         self.num_layers = num_layers
         self.block_size = block_size
@@ -14,3 +18,4 @@ class ModelConfiguration:
         self.d_model = d_model
         self.vocab_size = vocab_size
         self.use_liger = use_liger
+        self.rope_dtype = rope_dtype

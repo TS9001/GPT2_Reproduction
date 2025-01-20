@@ -1,8 +1,11 @@
 import torch
 import pytest
-from models.transformer_plus_baseline_liger import GPT2Basic, GPT2Configuration, RMSNorm, Attention
+from models.transformer_plus_baseline import ModelConfiguration
+from models.transformer_plus_baseline import GPT2Basic, RMSNorm, Attention, SwiGLU
 from liger_kernel.transformers import LigerRMSNorm
 from liger_kernel.transformers.rope import LigerRopeFunction
+from liger_kernel.transformers.swiglu import LigerSwiGLUMLP
+import torch.nn.functional as F
 
 
 def test_loss_equivalence():
@@ -11,7 +14,7 @@ def test_loss_equivalence():
         pytest.skip("CUDA not available")
 
     # Setup
-    config = GPT2Configuration(
+    config = ModelConfiguration(
         block_size=16,
         num_layers=2,
         num_heads=4,
@@ -145,7 +148,7 @@ def test_rope_implementations():
     k = torch.randn(batch_size, num_heads, seq_length, head_dim, device='cuda')
 
     # Create attention module to get precomputed cos/sin
-    config = GPT2Configuration(
+    config = ModelConfiguration(
         block_size=16,
         num_heads=num_heads,
         d_model=d_model,
@@ -203,4 +206,79 @@ def test_rope_implementations():
             rtol=1e-4,
             atol=1e-4,
             msg=f"Custom and Liger RoPE k outputs should match for sequence length {seq_len}"
+        )
+
+def test_swiglu_implementations():
+    # Skip if CUDA is not available
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA not available")
+
+    # Setup dimensions
+    batch_size = 2
+    seq_length = 8
+    d_model = 128
+
+    # Create input tensor
+    x = torch.randn(batch_size, seq_length, d_model, device='cuda')
+
+    # Create configurations for both implementations
+    config_custom = ModelConfiguration(
+        block_size=16,
+        num_heads=4,
+        d_model=d_model,
+        vocab_size=1000,
+        use_liger=False
+    )
+
+    # Initialize both implementations
+    custom_swiglu = SwiGLU(config_custom).cuda()
+    liger_swiglu = LigerSwiGLUMLP(type('Config', (), {
+        'hidden_size': d_model,
+        'intermediate_size': d_model * 4,
+        'hidden_act': 'silu'
+    })).cuda()
+
+    # Make weights the same for fair comparison
+    liger_swiglu.gate_proj.weight.data.copy_(custom_swiglu.w1.weight.data)
+    liger_swiglu.down_proj.weight.data.copy_(custom_swiglu.w2.weight.data)
+    liger_swiglu.up_proj.weight.data.copy_(custom_swiglu.w3.weight.data)
+
+    # Get intermediate values
+    custom_gate = custom_swiglu.w1(x)
+    custom_up = custom_swiglu.w3(x)
+    custom_gate_activated = F.silu(custom_gate)
+    custom_multiplied = custom_gate_activated * custom_up
+    custom_output = custom_swiglu.w2(custom_multiplied)
+
+    liger_gate = liger_swiglu.gate_proj(x)
+    liger_up = liger_swiglu.up_proj(x)
+    liger_output = liger_swiglu(x)
+
+    # Compare results with slightly relaxed tolerances
+    torch.testing.assert_close(
+        custom_output,
+        liger_output,
+        rtol=1e-4,
+        atol=1e-4,
+        msg="Custom SwiGLU and Liger SwiGLU should be approximately equal"
+    )
+
+    # Test with different shapes
+    shapes = [
+        (1, 16, d_model),    # Different sequence length
+        (4, 8, d_model),     # Different batch size
+        (2, 8, d_model),     # Original shape
+    ]
+
+    for shape in shapes:
+        x = torch.randn(*shape, device='cuda')
+        custom_output = custom_swiglu(x)
+        liger_output = liger_swiglu(x)
+
+        torch.testing.assert_close(
+            custom_output,
+            liger_output,
+            rtol=1e-4,
+            atol=1e-4,
+            msg=f"Custom and Liger SwiGLU should match for shape {shape}"
         )

@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from liger_kernel.transformers import LigerFusedLinearCrossEntropyLoss, LigerRMSNorm
+from liger_kernel.transformers import LigerFusedLinearCrossEntropyLoss, LigerRMSNorm, LigerSwiGLUMLP
 from liger_kernel.transformers.rope import LigerRopeFunction
 from models.model_configuration import ModelConfiguration
 from torch.nn import functional as F
@@ -67,16 +67,17 @@ class RMSNorm(nn.Module):
         return x_bsd * torch.rsqrt((x_bsd * x_bsd).mean(-1, keepdim=True) + self.eps) * self.weight_d
 
 
-class MLP(nn.Module):
+class SwiGLU(nn.Module):
     def __init__(self, config: ModelConfiguration):
         super().__init__()
-        self.w1 = nn.Linear(config.d_model, config.d_model * 4)
-        self.w2 = nn.Linear(config.d_model * 4, config.d_model)
-        self.w3 = nn.Linear(config.d_model, config.d_model * 4)
+        self.config = config
+        self.w1 = nn.Linear(config.d_model, config.d_model * 4, bias=False)
+        self.w2 = nn.Linear(config.d_model * 4, config.d_model, bias=False)
+        self.w3 = nn.Linear(config.d_model, config.d_model * 4, bias=False)
         self.w2.NANOGPT_SCALE_INIT = 1
 
     def forward(self, x_bsd):
-        return self.w2(F.silu(self.w1(x_bsd)) * self.w3(x_bsd))
+            return self.w2(F.silu(self.w1(x_bsd)) * self.w3(x_bsd))
 
 
 class Block(nn.Module):
@@ -86,7 +87,17 @@ class Block(nn.Module):
         self.ln_1 = LigerRMSNorm(config.d_model) if config.use_liger else RMSNorm(config.d_model)
         self.attn = Attention(config)
         self.ln_2 = LigerRMSNorm(config.d_model) if config.use_liger else RMSNorm(config.d_model)
-        self.mlp = MLP(config)
+        if config.use_liger:
+            self.mlp = LigerSwiGLUMLP(ModelConfiguration(
+                hidden_size=config.d_model,
+                intermediate_size=config.d_model * 4,
+                hidden_act="silu"
+            ))
+        else:
+            if config.use_liger:
+                self.mlp = LigerSwiGLUMLP(config)
+            else:
+                self.mlp = SwiGLU(config)
 
     def forward(self, x_bsd):
         x_bsd = x_bsd + self.attn(self.ln_1(x_bsd))
