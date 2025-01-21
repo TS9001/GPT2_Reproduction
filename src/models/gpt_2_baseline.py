@@ -1,10 +1,10 @@
 import torch
 import torch.nn as nn
 from liger_kernel.transformers import LigerFusedLinearCrossEntropyLoss, LigerLayerNorm
-
+from models.model_configuration import ModelConfiguration
 class Attention(nn.Module):
 
-    def __init__(self, config: GPT2Configuration):
+    def __init__(self, config: ModelConfiguration):
         super().__init__()
         self.config = config
         self.c_attn = nn.Linear(config.d_model, config.d_model*3)
@@ -33,7 +33,7 @@ class Attention(nn.Module):
 
 
 class MLP(nn.Module):
-    def __init__(self, config: GPT2Configuration):
+    def __init__(self, config: ModelConfiguration):
         super().__init__()
         self.c_fc = nn.Linear(config.d_model, config.d_model*4)
         self.act = nn.GELU()
@@ -45,7 +45,7 @@ class MLP(nn.Module):
 
 
 class Block(nn.Module):
-    def __init__(self, config: GPT2Configuration):
+    def __init__(self, config: ModelConfiguration):
         super().__init__()
         self.config=config
 
@@ -61,7 +61,7 @@ class Block(nn.Module):
 
 
 class GPT2Basic(nn.Module):
-    def __init__(self, config: GPT2Configuration):
+    def __init__(self, config: ModelConfiguration):
         super().__init__()
         self.config = config
 
