@@ -178,6 +178,9 @@ def train_model():
     setup_environment()
     ddp, ddp_rank, ddp_local_rank, ddp_world_size, master_process, device = initialize_ddp()
 
+    # Create model configuration for all processes
+    model_config = ModelConfiguration(num_layers=12, num_heads=12, d_model=768, use_liger=USE_LIGER)
+
     # Initialize wandb (only on master process)
     if master_process:
         # Get current datetime and format it
@@ -186,8 +189,6 @@ def train_model():
         script_name = os.path.splitext(os.path.basename(__file__))[0]
         # Create run name
         run_name = f"{script_name}_{current_time}_{ARCHITECTURE}"
-        # Create model configuration
-        model_config = ModelConfiguration(num_layers=12, num_heads=12, d_model=768, use_liger=USE_LIGER)
         # Initialize wandb
         wandb.init(
             project="gpt2-baseline",
@@ -251,7 +252,7 @@ def train_model():
         print(f'DDP world size: {ddp_world_size}')
         print(f'Device: {device}')
         print(f'Save on last: {SAVE_ON_LAST}')
-        print(f'Use liger: {CONFIGURATION.use_liger}')
+        print(f'Use liger: {USE_LIGER}')
 
     train_start = time.time()
     tokens_per_batch = MICRO_BATCH_SIZE * SEQUENCE_LENGTH * grad_accumulation_steps * ddp_world_size
