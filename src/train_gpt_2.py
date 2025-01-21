@@ -1,8 +1,8 @@
 import os
 import time
 import torch
-from models.transformer_plus import GPT2Basic as TransformerPlusBasic
-from models.gpt_2 import GPT2Basic
+from models.transformer_plus_baseline import GPT2Basic as TransformerPlusBasic
+from models.gpt_2_baseline import GPT2Basic
 from models.model_configuration import ModelConfiguration
 from utils.schedulers import CosineScheduler
 from utils.optimizer import Optimizer
