@@ -16,8 +16,8 @@ Code is definatelly not production-grade engineering code but it should be under
 6. <TODO> ....
 
 # Results
-[LIGER version of GPT2](https://wandb.ai/ttomassikora-gpt_experiments/gpt2-baseline/runs/ukvl6rnm/overview) - Approximatelly 100% speed-up, when comparing with Karpathy's 2h version.
-[Transformer++ version of GPT2](todo) - TODO SOON
+* [LIGER version of GPT2](https://wandb.ai/ttomassikora-gpt_experiments/gpt2-baseline/runs/ukvl6rnm/overview) - Approximatelly 100% speed-up, when comparing with Karpathy's 2h version.
+* [Transformer++ version of GPT2](todo) - TODO SOON
 
 ### Structure
 * Optimized for cursor IDE.
