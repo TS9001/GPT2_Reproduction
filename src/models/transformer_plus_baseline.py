@@ -88,12 +88,12 @@ class Block(nn.Module):
         self.attn = Attention(config)
         self.ln_2 = LigerRMSNorm(config.d_model) if config.use_liger else RMSNorm(config.d_model)
         if config.use_liger:
-            liger_config = ModelConfiguration(
-                hidden_size=config.d_model,
-                intermediate_size=config.d_model * 4,
-                hidden_act="silu"
-            )
-            self.mlp = LigerSwiGLUMLP(liger_config)
+            liger_config = {
+                'hidden_size': config.d_model,
+                'intermediate_size': config.d_model * 4,
+                'hidden_act': "silu"
+            }
+            self.mlp = LigerSwiGLUMLP(type('Config', (), liger_config)())
         else:
             self.mlp = SwiGLU(config)
 
