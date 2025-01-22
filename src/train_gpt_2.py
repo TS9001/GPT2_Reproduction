@@ -278,7 +278,7 @@ def train_model():
                     })
 
             if (step > 0 and step % HELLSWAG_STEPS == 0 or (last_step and SAVE_ON_LAST)):
-                with torch.compiler.disable():
+                with torch._dynamo.disable():
                     total, correct, correct_normalized = evaluate_hellswag(model, device, DATASET_TARGET_DIR, ddp_world_size, ddp_rank)
                     if ddp:
                         dist.all_reduce(total, op=dist.ReduceOp.SUM)
