@@ -88,16 +88,14 @@ class Block(nn.Module):
         self.attn = Attention(config)
         self.ln_2 = LigerRMSNorm(config.d_model) if config.use_liger else RMSNorm(config.d_model)
         if config.use_liger:
-            self.mlp = LigerSwiGLUMLP(ModelConfiguration(
+            liger_config = ModelConfiguration(
                 hidden_size=config.d_model,
                 intermediate_size=config.d_model * 4,
                 hidden_act="silu"
-            ))
+            )
+            self.mlp = LigerSwiGLUMLP(liger_config)
         else:
-            if config.use_liger:
-                self.mlp = LigerSwiGLUMLP(config)
-            else:
-                self.mlp = SwiGLU(config)
+            self.mlp = SwiGLU(config)
 
     def forward(self, x_bsd):
         x_bsd = x_bsd + self.attn(self.ln_1(x_bsd))
