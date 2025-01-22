@@ -278,18 +278,19 @@ def train_model():
                     })
 
             if (step > 0 and step % HELLSWAG_STEPS == 0 or (last_step and SAVE_ON_LAST)):
-                total, correct, correct_normalized = evaluate_hellswag(model, device, DATASET_TARGET_DIR, ddp_world_size, ddp_rank)
-                if ddp:
-                    dist.all_reduce(total, op=dist.ReduceOp.SUM)
-                    dist.all_reduce(correct, op=dist.ReduceOp.SUM)
-                    dist.all_reduce(correct_normalized, op=dist.ReduceOp.SUM)
+                with torch.compiler.disable():
+                    total, correct, correct_normalized = evaluate_hellswag(model, device, DATASET_TARGET_DIR, ddp_world_size, ddp_rank)
+                    if ddp:
+                        dist.all_reduce(total, op=dist.ReduceOp.SUM)
+                        dist.all_reduce(correct, op=dist.ReduceOp.SUM)
+                        dist.all_reduce(correct_normalized, op=dist.ReduceOp.SUM)
 
-                if master_process:
-                    wandb.log({
-                        "hellswag_acc": correct / total,
-                        "hellswag_acc_normalized": correct_normalized / total,
-                        "step": step
-                    })
+                    if master_process:
+                        wandb.log({
+                            "hellswag_acc": correct / total,
+                            "hellswag_acc_normalized": correct_normalized / total,
+                            "step": step
+                        })
 
             if master_process and ((step > 0 and step % SAVE_STEPS == 0) or (last_step and SAVE_ON_LAST)):
                 checkpoint = {
