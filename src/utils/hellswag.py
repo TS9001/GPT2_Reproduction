@@ -61,8 +61,6 @@ def load_example(example, enc, device):
 
 
 def evaluate_hellswag(model, device, dataset_target_dir, ddp_world_size, ddp_rank):
-    import torch.distributed as dist
-
     with open(os.path.join(dataset_target_dir, "hellswag.jsonl"), "r") as f:
         examples = []
         for line in f:
