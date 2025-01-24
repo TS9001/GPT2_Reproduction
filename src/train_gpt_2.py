@@ -106,13 +106,13 @@ def setup_model(device, ddp, ddp_local_rank, model_config):
     else:  # Default to GPT2Basic
         model = GPT2Basic(model_config)
 
-    model = model.to(device)
+    uncompiled_model = model.to(device)
     model = torch.compile(model)
     raw_model = model
     if ddp:
         model = DDP(model, device_ids=[ddp_local_rank])
         raw_model = model.module
-    return model, raw_model
+    return model, raw_model, uncompiled_model
 
 
 def process_validation(model, valid_data_loader, log_file, step, device, ddp, master_process):
@@ -211,7 +211,7 @@ def train_model():
         )
 
     download_hellswag_dataset(SOURCE, dirname=DATASET_TARGET_DIR)
-    model, raw_model = setup_model(device, ddp, ddp_local_rank, model_config)
+    model, raw_model, uncompiled_model = setup_model(device, ddp, ddp_local_rank, model_config)
     tokenizer = tiktoken.get_encoding('gpt2')
     train_data_loader, valid_data_loader = load_data(
         tokenizer=tokenizer,
@@ -282,7 +282,7 @@ def train_model():
 
             if (step > 0 and step % HELLSWAG_STEPS == 0 or (last_step and SAVE_ON_LAST)):
                     model.eval()
-                    total, correct, correct_normalized = evaluate_hellswag(model, device, DATASET_TARGET_DIR, ddp_world_size, ddp_rank)
+                    total, correct, correct_normalized = evaluate_hellswag(uncompiled_model, device, DATASET_TARGET_DIR, ddp_world_size, ddp_rank)
                     if ddp:
                         dist.all_reduce(total, op=dist.ReduceOp.SUM)
                         dist.all_reduce(correct, op=dist.ReduceOp.SUM)
