@@ -147,7 +147,6 @@ def process_validation(model, valid_data_loader, log_file, step, device, ddp, ma
 def process_hellswag(model, log_file, step, device, ddp, ddp_world_size, ddp_rank, master_process):
     """Process Hellswag evaluation."""
     with torch.no_grad():
-        with torch._dynamo.disable():
             model.eval()
             total, correct, correct_normalized = evaluate_hellswag(model, device, DATASET_TARGET_DIR, ddp_world_size, ddp_rank)
     if ddp:
