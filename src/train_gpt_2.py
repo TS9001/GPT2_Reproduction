@@ -281,13 +281,12 @@ def train_model():
 
             if (step > 0 and step % HELLSWAG_STEPS == 0 or (last_step and SAVE_ON_LAST)):
                 with torch.no_grad():
-                    with torch._dynamo.disable():
-                        model.eval()
-                        total, correct, correct_normalized = evaluate_hellswag(uncompiled_model, device, DATASET_TARGET_DIR, ddp_world_size, ddp_rank)
-                        if ddp:
-                            dist.all_reduce(total, op=dist.ReduceOp.SUM)
-                        dist.all_reduce(correct, op=dist.ReduceOp.SUM)
-                        dist.all_reduce(correct_normalized, op=dist.ReduceOp.SUM)
+                    model.eval()
+                    total, correct, correct_normalized = evaluate_hellswag(uncompiled_model, device, DATASET_TARGET_DIR, ddp_world_size, ddp_rank)
+                    if ddp:
+                        dist.all_reduce(total, op=dist.ReduceOp.SUM)
+                    dist.all_reduce(correct, op=dist.ReduceOp.SUM)
+                    dist.all_reduce(correct_normalized, op=dist.ReduceOp.SUM)
 
                     if master_process:
                         wandb.log({
