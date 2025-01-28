@@ -4,7 +4,7 @@ from models.transformer_plus_baseline import ModelConfiguration
 from models.transformer_plus_baseline import ModelBasic, RMSNorm, Attention, SwiGLU
 from liger_kernel.transformers import LigerRMSNorm
 from liger_kernel.transformers.rope import LigerRopeFunction
-from liger_kernel.transformers.swiglu import LigerSwiGLUMLP
+from liger_kernel.transformers.swiglu import LigerSwiGLUMLP, Normalized_LigerSwiGLUMLP
 import torch.nn.functional as F
 
 
@@ -218,8 +218,8 @@ def test_swiglu_implementations():
     seq_length = 8
     d_model = 128
 
-    # Create input tensor
-    x = torch.randn(batch_size, seq_length, d_model, device='cuda')
+    # Create input tensor and ensure it's on CUDA
+    x = torch.randn(batch_size, seq_length, d_model).cuda()
 
     # Create configurations for both implementations
     config_custom = ModelConfiguration(
@@ -227,34 +227,25 @@ def test_swiglu_implementations():
         num_heads=4,
         d_model=d_model,
         vocab_size=1000,
-        use_liger=False
+        use_liger=True,
+        base_scale=1.0,
+        rope_dtype=torch.float32
     )
 
     # Initialize both implementations
     custom_swiglu = SwiGLU(config_custom).cuda()
-    liger_swiglu = LigerSwiGLUMLP(type('Config', (), {
-        'hidden_size': d_model,
-        'intermediate_size': d_model * 4,
-        'hidden_act': 'silu'
-    })).cuda()
+    liger_swiglu = LigerSwiGLUMLP(d_model, d_model * 4).cuda()  # Using the base class instead
 
     # Make weights the same for fair comparison
     liger_swiglu.gate_proj.weight.data.copy_(custom_swiglu.w1.weight.data)
     liger_swiglu.down_proj.weight.data.copy_(custom_swiglu.w2.weight.data)
     liger_swiglu.up_proj.weight.data.copy_(custom_swiglu.w3.weight.data)
 
-    # Get intermediate values
-    custom_gate = custom_swiglu.w1(x)
-    custom_up = custom_swiglu.w3(x)
-    custom_gate_activated = F.silu(custom_gate)
-    custom_multiplied = custom_gate_activated * custom_up
-    custom_output = custom_swiglu.w2(custom_multiplied)
-
-    liger_gate = liger_swiglu.gate_proj(x)
-    liger_up = liger_swiglu.up_proj(x)
+    # Get outputs
+    custom_output = custom_swiglu(x)
     liger_output = liger_swiglu(x)
 
-    # Compare results with slightly relaxed tolerances
+    # Compare results
     torch.testing.assert_close(
         custom_output,
         liger_output,
@@ -271,7 +262,7 @@ def test_swiglu_implementations():
     ]
 
     for shape in shapes:
-        x = torch.randn(*shape, device='cuda')
+        x = torch.randn(*shape).cuda()
         custom_output = custom_swiglu(x)
         liger_output = liger_swiglu(x)
 

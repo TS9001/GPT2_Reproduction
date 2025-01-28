@@ -8,24 +8,21 @@ from models.model_configuration import ModelConfiguration, TrainedNetwork
 from liger_kernel.ops.swiglu import LigerSiLUMulFunction
 from torch.nn import functional as F
 
-# TODO: Add correct initial scaling and write some tests
 class Attention(TrainedNetwork):
     def __init__(self, config: ModelConfiguration):
-        super().__init__()
-        self.config = config
+        super().__init__(config)
         self.c_attn = nn.Linear(config.d_model, config.d_model*3)
         self.c_proj = nn.Linear(config.d_model, config.d_model)
         self.c_proj.NANOGPT_SCALE_INIT = 1
         self.num_heads = self.config.num_heads
         self.rope_dtype = config.rope_dtype
-        self.attn_scale = math.sqrt(config.d_model / config.head_dim)
         cos, sin = self.precompute_freqs_cis(config.d_model // self.num_heads, config.block_size)
         self.register_buffer("cos_sp",  torch.cat([cos, cos], dim=-1).unsqueeze(0))  # [1, seq, dim]
         self.register_buffer("sin_sp",  torch.cat([sin, sin], dim=-1).unsqueeze(0))  # [1, seq, dim]
-
+        self.attn_scale = math.sqrt(config.d_model / config.num_heads)
         self.sqk_init_value = 1.0
         self.sqk_init_scaling = config.base_scale
-        self.sqk = torch.nn.Parameter(self.sqk_init_scaling*torch.ones(self.config.d_model, dtype=torch.float32))
+        self.sqk = torch.nn.Parameter(self.sqk_init_scaling*torch.ones(self.config.d_model // self.config.num_heads, dtype=torch.float32))
 
 
     def precompute_freqs_cis(self, dim: int, end: int,  theta=10000.0):
@@ -61,7 +58,7 @@ class Attention(TrainedNetwork):
                     None,
                     1     # unsqueeze_dim
                 )
-        sqk_scaled = self.sqk * (self.sqk_init_value / self.sqk_init_scaling).view(1, 1, -1)
+        sqk_scaled = (self.sqk * (self.sqk_init_value / self.sqk_init_scaling)).view(1, 1, 1, self.config.d_model // self.config.num_heads )
         q_norm = sqk_scaled * _normalize_weights(q_bhsd)
         k_norm = sqk_scaled * _normalize_weights(k_bhsd)
         y_bhsd = torch.nn.functional.scaled_dot_product_attention(q_norm, k_norm, v_bhsd, is_causal=True, scale=self.attn_scale)
@@ -81,8 +78,8 @@ class SwiGLU(nn.Module):
 
         # Scaling parameter
         self.suv_init_value = 1.0
-        self.suv_init_scaling = 1.0
-        self.suv = torch.nn.Parameter(self.suv_init_scaling*torch.ones(2 * 4 * config.n_embd, dtype=torch.float32))
+        self.suv_init_scaling = config.base_scale
+        self.suv = torch.nn.Parameter(self.suv_init_scaling*torch.ones(2 * 4 * config.d_model, dtype=torch.float32))
 
     def forward(self, x_bsd):
         # Calculate scaling factor
@@ -95,21 +92,25 @@ class SwiGLU(nn.Module):
 
 
 class Normalized_LigerSwiGLUMLP(LigerSwiGLUMLP):
-    def __init__(self, config: ModelConfiguration):
-        super().__init__()
+    def __init__(self, liger_config, config: ModelConfiguration):
+        super().__init__(liger_config)
+        self.config = liger_config
         self.suv_init_value = 1.0
-        self.suv_init_scaling = 1.0
-        self.suv = torch.nn.Parameter(self.suv_init_scaling*torch.ones(2 * 4 * config.n_embd, dtype=torch.float32))
+        self.suv_init_scaling = config.base_scale
+        self.suv = torch.nn.Parameter(self.suv_init_scaling * torch.ones(2 * 4 * config.d_model, dtype=torch.float32))
 
     def forward(self, x):
-        suv = (self.suv * ((self.suv_init_value/self.suv_init_scaling) * (self.config.hidden_size ** 0.5)))
-        gate_s, up_s = torch.chunk(suv, 2, dim=-1)
+        # Simple scaling calculation
+        scale = self.suv_init_value / self.suv_init_scaling
+        gate_s, up_s = torch.chunk(self.suv * scale, 2, dim=-1)
 
+        # Apply scaling to projections
         gate_out = gate_s * self.gate_proj(x)
         up_out = up_s * self.up_proj(x)
-        return self.down_proj(
-            LigerSiLUMulFunction.apply(gate_out, up_out)
-        )
+
+        # Apply SwiGLU activation and down projection
+        hidden_states = LigerSiLUMulFunction.apply(gate_out, up_out)
+        return self.down_proj(hidden_states)
 
 class Block(nn.Module):
     def __init__(self, config: ModelConfiguration):
@@ -122,7 +123,7 @@ class Block(nn.Module):
                 'intermediate_size': config.d_model * 4,
                 'hidden_act': "silu"
             }
-            self.mlp = Normalized_LigerSwiGLUMLP(type('Config', (), liger_config)())
+            self.mlp = Normalized_LigerSwiGLUMLP(type('Config', (), liger_config)(), config)
         else:
             self.mlp = SwiGLU(config)
 
@@ -143,7 +144,7 @@ class Block(nn.Module):
         return h
 
 
-class ModelBasic(nn.Module):
+class ModelBasis(nn.Module):
     def __init__(self, config: ModelConfiguration):
         super().__init__()
         self.config = config
@@ -196,9 +197,11 @@ class ModelBasic(nn.Module):
 
         return self.compute_standard_loss(x_bsd, y, return_logits)
 
+    def post_training_step(self):
+        self._post_step_normalize_weights()
+
     def _post_step_normalize_weights(self):
-        self.transformer.wte.weight.data.copy_(self._normalize_weights(self.transformer.wte.weight.data))
-        self.lm_head.weight.data.copy_(self._normalize_weights(self.lm_head.weight.data))
+        self.lm_head.weight.data.copy_(_normalize_weights(self.lm_head.weight.data))
 
         for block in self.transformer.h:
 
@@ -209,15 +212,15 @@ class ModelBasic(nn.Module):
             block.attn.c_attn.weight.data.copy_(torch.cat([q, k, v], dim=0))
 
             if self.config.use_liger:
-                block.mlp.gate_proj.weight.data.copy_(self._normalize_weights(block.mlp.gate_proj.weight.data))
-                block.mlp.up_proj.weight.data.copy_(self._normalize_weights(block.mlp.up_proj.weight.data))
-                block.mlp.down_proj.weight.data.copy_(self._normalize_weights(block.mlp.down_proj.weight.data))
+                block.mlp.gate_proj.weight.data.copy_(_normalize_weights(block.mlp.gate_proj.weight.data))
+                block.mlp.up_proj.weight.data.copy_(_normalize_weights(block.mlp.up_proj.weight.data))
+                block.mlp.down_proj.weight.data.copy_(_normalize_weights(block.mlp.down_proj.weight.data))
             else:
-                block.mlp.w1.weight.data.copy_(self._normalize_weights(block.mlp.w1.weight.data))
-                block.mlp.w2.weight.data.copy_(self._normalize_weights(block.mlp.w2.weight.data))
-                block.mlp.w3.weight.data.copy_(self._normalize_weights(block.mlp.w3.weight.data))
+                block.mlp.w1.weight.data.copy_(_normalize_weights(block.mlp.w1.weight.data))
+                block.mlp.w2.weight.data.copy_(_normalize_weights(block.mlp.w2.weight.data))
+                block.mlp.w3.weight.data.copy_(_normalize_weights(block.mlp.w3.weight.data))
 
-def _normalize_weights(self, x, norm_dim = -1, eps=1e-8):
+def _normalize_weights(x, norm_dim = -1, eps=1e-8):
     orig_type = x.dtype
     x = x.to(torch.float32)
     return (x / (x.norm(p=2, dim=norm_dim, keepdim=True) + eps)).to(orig_type)

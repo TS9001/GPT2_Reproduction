@@ -59,7 +59,7 @@ class Block(nn.Module):
         return x
 
 
-class ModelBasic(TrainedNetwork):
+class ModelBasis(TrainedNetwork):
     def __init__(self, config: ModelConfiguration):
         super().__init__()
         self.config = config

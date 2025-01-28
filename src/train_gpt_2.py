@@ -1,9 +1,9 @@
 import os
 import time
 import torch
-from models.transformer_plus_baseline import ModelBasic as TransformerPlusBasic
-from models.nGpt import ModelBasic as nGpt
-from models.gpt_2 import ModelBasic
+from models.transformer_plus_baseline import ModelBasic as TransformerPlusBasis
+from models.nGpt import ModelBasis as nGpt
+from models.gpt_2 import ModelBasis
 from models.model_configuration import ModelConfiguration
 from utils.schedulers import CosineScheduler
 from utils.optimizer import Optimizer
@@ -107,7 +107,7 @@ def setup_model(device, ddp, ddp_local_rank, model_config):
     elif ARCHITECTURE == "N_GPT":
         model = nGpt(model_config)
     else:  # Default to GPT2Basic
-        model = ModelBasic(model_config)
+        model = ModelBasis(model_config)
 
     uncompiled_model = model.to(device)
     model = torch.compile(model)

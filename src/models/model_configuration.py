@@ -10,7 +10,8 @@ class ModelConfiguration:
         d_model: int = 768,
         vocab_size: int = 50304,
         use_liger: bool = False,
-        rope_dtype: dtype = torch.float32
+        rope_dtype: dtype = torch.float32,
+        base_scale = 1 / (50304 ** 0.5)
     ):
         self.num_layers = num_layers
         self.block_size = block_size
@@ -19,6 +20,7 @@ class ModelConfiguration:
         self.vocab_size = vocab_size
         self.use_liger = use_liger
         self.rope_dtype = rope_dtype
+        self.base_scale = base_scale
 
 class TrainedNetwork(nn.Module):
     def __init__(self, config: ModelConfiguration):

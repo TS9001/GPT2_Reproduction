@@ -103,7 +103,7 @@ class Block(nn.Module):
         return x_bsd
 
 
-class ModelBasic(nn.Module):
+class ModelBasis(nn.Module):
     def __init__(self, config: ModelConfiguration):
         super().__init__()
         self.config = config
