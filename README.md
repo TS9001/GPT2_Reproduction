@@ -17,9 +17,8 @@ Code is definatelly not production-grade engineering code but it should be under
 
 # Results
 The results are approximate. I just want to track if architecture works as expected.
-* [LIGER version of GPT2](https://wandb.ai/ttomassikora-gpt_experiments/gpt2-baseline/runs/ukvl6rnm/overview) - Approximatelly 100% speed-up, when comparing with Karpathy's 2h version.
-* [Transformer++ version of GPT2](https://wandb.ai/ttomassikora-gpt_experiments/gpt2-baseline/runs/bxs78bco) - Improvement in hellawaswag score almost ~2%, probably could bump hyperparams
-especially LR to get more improvement. Probably could do more by different LR schedule.
+* [LIGER version of GPT2](https://api.wandb.ai/links/ttomassikora-gpt_experiments/ywonl9vr)
+* [Transformer++ version of GPT2](https://api.wandb.ai/links/ttomassikora-gpt_experiments/w8uw20hi)
 
 ### Structure
 * Optimized for cursor IDE.
