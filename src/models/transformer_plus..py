@@ -2,10 +2,10 @@ import torch
 import torch.nn as nn
 from liger_kernel.transformers import LigerFusedLinearCrossEntropyLoss, LigerRMSNorm, LigerSwiGLUMLP
 from liger_kernel.transformers.rope import LigerRopeFunction
-from models.model_configuration import ModelConfiguration
+from models.model_configuration import ModelConfiguration, TrainedNetwork
 from torch.nn import functional as F
 
-class Attention(nn.Module):
+class Attention(TrainedNetwork):
     def __init__(self, config: ModelConfiguration):
         super().__init__()
         self.config = config
@@ -103,19 +103,18 @@ class Block(nn.Module):
         return x_bsd
 
 
-class GPT2Basic(nn.Module):
+class ModelBasic(nn.Module):
     def __init__(self, config: ModelConfiguration):
         super().__init__()
         self.config = config
 
         self.transformer = nn.ModuleDict(dict(
             wte=nn.Embedding(config.vocab_size, config.d_model),
-            wpe=nn.Embedding(config.block_size, config.d_model),
             h=nn.ModuleList([Block(config) for _ in range(config.num_layers)]),
             ln_f=LigerRMSNorm(config.d_model) if config.use_liger else RMSNorm(config.d_model)
         ))
         self.lm_head = torch.nn.Linear(config.d_model, config.vocab_size, bias=False)
-        self.transformer.wte.weight = self.lm_head.weight
+        self.transformer.wte.weight = self.lm_head.weight # non standard for t++ but saves some memory
         self.apply(self._init_weights)
 
     def _init_weights(self, module):
@@ -158,7 +157,7 @@ class GPT2Basic(nn.Module):
     def forward(self, x_bs, y=None, return_logits=True):  # [batch,seq]
         _, S = x_bs.size()
         seq_s = torch.arange(0, S, device=x_bs.device, dtype=torch.long)
-        x_bsd = self.transformer.wte(x_bs) + self.transformer.wpe(seq_s)
+        x_bsd = self.transformer.wte(x_bs)
 
         for block in self.transformer.h:
             x_bsd = block(x_bsd)

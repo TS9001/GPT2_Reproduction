@@ -1,6 +1,6 @@
 import torch
 from torch import dtype
-
+from torch import nn
 class ModelConfiguration:
     def __init__(
         self,
@@ -19,3 +19,14 @@ class ModelConfiguration:
         self.vocab_size = vocab_size
         self.use_liger = use_liger
         self.rope_dtype = rope_dtype
+
+class TrainedNetwork(nn.Module):
+    def __init__(self, config: ModelConfiguration):
+        super().__init__()
+        self.config = config
+
+    def post_training_step(self):
+        pass
+
+    def pre_training_step(self):
+        pass

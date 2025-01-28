@@ -1,8 +1,9 @@
 import os
 import time
 import torch
-from models.transformer_plus_baseline import GPT2Basic as TransformerPlusBasic
-from models.gpt_2_baseline import GPT2Basic
+from models.transformer_plus_baseline import ModelBasic as TransformerPlusBasic
+from models.nGpt import ModelBasic as nGpt
+from models.gpt_2 import ModelBasic
 from models.model_configuration import ModelConfiguration
 from utils.schedulers import CosineScheduler
 from utils.optimizer import Optimizer
@@ -103,8 +104,10 @@ def setup_model(device, ddp, ddp_local_rank, model_config):
     """Set up the model for training."""
     if ARCHITECTURE == "TRANSFORMER_PLUS":
         model = TransformerPlusBasic(model_config)
+    elif ARCHITECTURE == "N_GPT":
+        model = nGpt(model_config)
     else:  # Default to GPT2Basic
-        model = GPT2Basic(model_config)
+        model = ModelBasic(model_config)
 
     uncompiled_model = model.to(device)
     model = torch.compile(model)
@@ -306,6 +309,7 @@ def train_model():
 
             model.train()
             optimizer.zero_grad()
+            model.pre_training_step()
 
             loss_accumulated = process_micro_batch(
                 model,
@@ -319,6 +323,8 @@ def train_model():
             norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.set_learning_rate(scheduler.get_lr(step))
             optimizer.step()
+            model.post_training_step()
+
             if device == "cuda":
                 torch.cuda.synchronize()
 

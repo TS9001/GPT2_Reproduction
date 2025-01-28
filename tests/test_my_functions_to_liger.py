@@ -1,7 +1,7 @@
 import torch
 import pytest
 from models.transformer_plus_baseline import ModelConfiguration
-from models.transformer_plus_baseline import GPT2Basic, RMSNorm, Attention, SwiGLU
+from models.transformer_plus_baseline import ModelBasic, RMSNorm, Attention, SwiGLU
 from liger_kernel.transformers import LigerRMSNorm
 from liger_kernel.transformers.rope import LigerRopeFunction
 from liger_kernel.transformers.swiglu import LigerSwiGLUMLP
@@ -23,7 +23,7 @@ def test_loss_equivalence():
         use_liger=False
     )
 
-    model = GPT2Basic(config).cuda()
+    model = ModelBasic(config).cuda()
 
     # Create sample input data on CUDA
     batch_size = 2
