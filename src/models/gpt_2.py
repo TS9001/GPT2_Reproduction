@@ -61,8 +61,7 @@ class Block(nn.Module):
 
 class ModelBasis(TrainedNetwork):
     def __init__(self, config: ModelConfiguration):
-        super().__init__()
-        self.config = config
+        super().__init__(config)
 
         self.transformer = nn.ModuleDict(dict(
             wte=nn.Embedding(config.vocab_size, config.d_model),

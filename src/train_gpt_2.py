@@ -1,7 +1,7 @@
 import os
 import time
 import torch
-from models.transformer_plus_baseline import ModelBasic as TransformerPlusBasis
+from models.transformer_plus import ModelBasis as TransformerPlusBasis
 from models.nGpt import ModelBasis as nGpt
 from models.gpt_2 import ModelBasis
 from models.model_configuration import ModelConfiguration
@@ -103,7 +103,7 @@ def load_data(tokenizer, ddp_rank, micro_batch_size, max_seq_len, ddp_world_size
 def setup_model(device, ddp, ddp_local_rank, model_config):
     """Set up the model for training."""
     if ARCHITECTURE == "TRANSFORMER_PLUS":
-        model = TransformerPlusBasic(model_config)
+        model = TransformerPlusBasis(model_config)
     elif ARCHITECTURE == "N_GPT":
         model = nGpt(model_config)
     else:  # Default to GPT2Basic

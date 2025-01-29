@@ -2,7 +2,7 @@ import math
 import torch
 import torch.nn as nn
 from liger_kernel.ops.swiglu import LigerSiLUMulFunction
-from liger_kernel.transformers import LigerFusedLinearCrossEntropyLoss, LigerSwiGLUMLP
+from liger_kernel.transformers import LigerSwiGLUMLP
 from liger_kernel.transformers.rope import LigerRopeFunction
 from models.model_configuration import ModelConfiguration, TrainedNetwork
 from liger_kernel.ops.swiglu import LigerSiLUMulFunction
@@ -144,10 +144,9 @@ class Block(nn.Module):
         return h
 
 
-class ModelBasis(nn.Module):
+class ModelBasis(TrainedNetwork):
     def __init__(self, config: ModelConfiguration):
-        super().__init__()
-        self.config = config
+        super().__init__(config)
 
         self.transformer = nn.ModuleDict(dict(
             wte=nn.Embedding(config.vocab_size, config.d_model),
@@ -197,7 +196,7 @@ class ModelBasis(nn.Module):
 
         return self.compute_standard_loss(x_bsd, y, return_logits)
 
-    def post_training_step(self):
+    def pre_training_step(self):
         self._post_step_normalize_weights()
 
     def _post_step_normalize_weights(self):
