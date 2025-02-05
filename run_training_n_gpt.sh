@@ -57,7 +57,7 @@ fi
 
 # Set environment variables
 echo "=== Setting environment variables ==="
-export ARCHITECTURE="TRANSFORMER_PLUS"
+export ARCHITECTURE="N_GPT"
 export VALIDATION_PER_STEPS=500
 export HELLSWAG_STEPS=500
 export SAVE_STEPS=500

@@ -8,7 +8,7 @@ from models.model_configuration import ModelConfiguration, TrainedNetwork
 from liger_kernel.ops.swiglu import LigerSiLUMulFunction
 from torch.nn import functional as F
 
-class Attention(TrainedNetwork):
+class Attention(nn.Module):
     def __init__(self, config: ModelConfiguration):
         super().__init__(config)
         self.c_attn = nn.Linear(config.d_model, config.d_model*3)
