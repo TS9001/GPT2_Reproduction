@@ -309,7 +309,7 @@ def train_model():
 
             model.train()
             optimizer.zero_grad()
-            model.pre_training_step()
+            raw_model.pre_training_step()
 
             loss_accumulated = process_micro_batch(
                 model,
@@ -323,7 +323,7 @@ def train_model():
             norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.set_learning_rate(scheduler.get_lr(step))
             optimizer.step()
-            model.post_training_step()
+            raw_model.post_training_step()
 
             if device == "cuda":
                 torch.cuda.synchronize()
