@@ -139,8 +139,7 @@ class Block(nn.Module):
     def forward(self, h):
         attn_alpha = torch.abs(self.attn_alpha * (self.attn_alpha_init_value / self.attn_alpha_init_scaling))
         mlp_alpha = torch.abs(self.mlp_alpha * (self.mlp_alpha_init_value / self.mlp_alpha_init_scaling))
-        h_norm = _normalize_weights(h)
-        h =  _normalize_weights(h_norm +  attn_alpha * (_normalize_weights(self.attn(h)) - h_norm))
+        h =  _normalize_weights(h +  attn_alpha * (_normalize_weights(self.attn(h)) - h))
         h = _normalize_weights(h + mlp_alpha * (_normalize_weights(self.mlp(h)) - h))
         return h
 
