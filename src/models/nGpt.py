@@ -10,7 +10,7 @@ from torch.nn import functional as F
 
 class Attention(nn.Module):
     def __init__(self, config: ModelConfiguration):
-        super().__init__(config)
+        super().__init__()
         self.c_attn = nn.Linear(config.d_model, config.d_model*3)
         self.c_proj = nn.Linear(config.d_model, config.d_model)
         self.c_proj.NANOGPT_SCALE_INIT = 1
