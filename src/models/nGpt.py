@@ -153,7 +153,7 @@ class ModelBasis(TrainedNetwork):
             h=nn.ModuleList([Block(config) for _ in range(config.num_layers)]),
         ))
         self.lm_head = torch.nn.Linear(config.d_model, config.vocab_size, bias=False)
-        self.transformer.wte.weight = self.lm_head.weight # non standard for t++ but saves some memory
+        self.wte = torch.nn.Linear(config.d_model, config.vocab_size, bias=False)
         self.apply(self._init_weights)
 
         self.sz_init_value = 1.00
@@ -201,6 +201,7 @@ class ModelBasis(TrainedNetwork):
 
     def _post_step_normalize_weights(self):
         self.lm_head.weight.data.copy_(_normalize_weights(self.lm_head.weight.data))
+        self.wte.weight.data.copy_(_normalize_weights(self.wte.weight.data))
 
         for block in self.transformer.h:
 
@@ -209,7 +210,7 @@ class ModelBasis(TrainedNetwork):
             k = _normalize_weights(k)
             v = _normalize_weights(v)
             block.attn.c_attn.weight.data.copy_(torch.cat([q, k, v], dim=0))
-
+            block.attn.c_proj.weight.data.copy_(_normalize_weights(block.attn.c_proj.weight.data))
             if self.config.use_liger:
                 block.mlp.gate_proj.weight.data.copy_(_normalize_weights(block.mlp.gate_proj.weight.data))
                 block.mlp.up_proj.weight.data.copy_(_normalize_weights(block.mlp.up_proj.weight.data))

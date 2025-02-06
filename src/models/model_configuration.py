@@ -11,7 +11,7 @@ class ModelConfiguration:
         vocab_size: int = 50304,
         use_liger: bool = False,
         rope_dtype: dtype = torch.float32,
-        base_scale = 1 / (50304 ** 0.5)
+        base_scale = 1 / (768 ** 0.5)
     ):
         self.num_layers = num_layers
         self.block_size = block_size
