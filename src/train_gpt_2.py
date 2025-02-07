@@ -101,7 +101,7 @@ def load_data(tokenizer, ddp_rank, micro_batch_size, max_seq_len, ddp_world_size
 
 
 def setup_model(device, ddp, ddp_local_rank, model_config):
-    """Set up the model for training."""
+    """Set up the model for traigrning."""
     if ARCHITECTURE == "TRANSFORMER_PLUS":
         model = TransformerPlusBasis(model_config)
     elif ARCHITECTURE == "N_GPT":
@@ -320,7 +320,7 @@ def train_model():
 
             if ddp:
                 dist.all_reduce(loss_accumulated, op=dist.ReduceOp.AVG)
-            norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 0)
             optimizer.set_learning_rate(scheduler.get_lr(step))
             optimizer.step()
             raw_model.post_training_step()
